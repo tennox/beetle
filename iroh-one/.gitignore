@@ -1,0 +1,5 @@
+# Default path for the store.
+iroh-store-db/
+
+# genereated when cross-compiling
+.cargo/

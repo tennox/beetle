@@ -101,8 +101,8 @@ impl<T: ContentLoader + std::marker::Unpin> Core<T> {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use iroh_rpc_client::Config as RpcClientConfig;
     use iroh_rpc_client::Client as RpcClient;
+    use iroh_rpc_client::Config as RpcClientConfig;
 
     #[tokio::test]
     async fn gateway_health() {

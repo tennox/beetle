@@ -1,0 +1,10 @@
+[store]
+# path = "/data/local/service/ipfsd/store"
+
+[p2p]
+bootstrap_peers = []
+# mdns = true
+kademlia = false
+autonat = false
+relay_server = false
+relay_client = false

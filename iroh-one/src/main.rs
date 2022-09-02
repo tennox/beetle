@@ -58,6 +58,10 @@ async fn main() -> Result<()> {
     let (rpc_addr, gw_sender) = Addr::new_mem();
     #[cfg(not(feature = "uds-gateway"))]
     {
+        if config.gateway.port == 0 {
+            println!("Neither listening on an HTTP port, nor using UDS: check your configuration!");
+            return Ok(());
+        }
         config.rpc_client.gateway_addr = Some(gw_sender);
     }
 
@@ -91,15 +95,20 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    let handler = Core::new_with_state(rpc_addr, Arc::clone(&shared_state)).await?;
-
     let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config)
         .await
         .expect("failed to initialize metrics");
-    let server = handler.server();
-    println!("HTTP endpoint listening on {}", server.local_addr());
+
+    let shared_state2 = Arc::clone(&shared_state);
     let core_task = tokio::spawn(async move {
-        server.await.unwrap();
+        if config.gateway.port != 0 {
+            let handler = Core::new_with_state(rpc_addr, Arc::clone(&shared_state2))
+                .await
+                .unwrap();
+            let server = handler.server();
+            println!("HTTP endpoint listening on {}", server.local_addr());
+            server.await.unwrap();
+        }
     });
 
     #[cfg(feature = "uds-gateway")]

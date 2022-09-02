@@ -28,6 +28,8 @@ pub struct Config {
     /// Path for the UDS socket for the gateway.
     #[cfg(feature = "uds-gateway")]
     pub gateway_uds_path: Option<PathBuf>,
+    /// URL of the gateway used by the racing resolver.
+    pub resolver_gateway: Option<String>,
     /// Gateway specific configuration.
     pub gateway: iroh_gateway::config::Config,
     /// Store specific configuration.
@@ -47,6 +49,7 @@ impl Config {
         p2p: iroh_p2p::config::Config,
         rpc_client: RpcClientConfig,
         #[cfg(feature = "uds-gateway")] gateway_uds_path: Option<PathBuf>,
+        resolver_gateway: Option<String>,
     ) -> Self {
         Self {
             gateway,
@@ -56,6 +59,7 @@ impl Config {
             metrics: MetricsConfig::default(),
             #[cfg(feature = "uds-gateway")]
             gateway_uds_path,
+            resolver_gateway,
         }
     }
 
@@ -102,6 +106,7 @@ impl Default for Config {
             p2p: default_p2p_config(ipfsd, metrics_config),
             #[cfg(feature = "uds-gateway")]
             gateway_uds_path: Some(gateway_uds_path),
+            resolver_gateway: None,
         }
     }
 }
@@ -149,6 +154,10 @@ impl Source for Config {
                 uds_path.to_str().unwrap().to_string(),
             );
         }
+        if let Some(resolver_gateway) = &self.resolver_gateway {
+            insert_into_config_map(&mut map, "resolver_gateway", resolver_gateway.clone());
+        }
+
         Ok(map)
     }
 }

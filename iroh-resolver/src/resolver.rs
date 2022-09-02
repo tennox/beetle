@@ -388,6 +388,7 @@ pub struct LoadedCid {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     Bitswap,
+    Http(String),
     Store(&'static str),
 }
 

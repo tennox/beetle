@@ -6,7 +6,7 @@ use cid::{multibase, Cid};
 use futures::{future::FutureExt, pin_mut, select};
 use iroh_resolver::resolver::{parse_links, ContentLoader, LoadedCid, Source, IROH_STORE};
 use iroh_rpc_client::Client as RpcClient;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 #[derive(Clone, Debug)]
 pub struct RacingLoader {
@@ -16,6 +16,10 @@ pub struct RacingLoader {
 
 impl RacingLoader {
     pub fn new(rpc_client: RpcClient, gateway: Option<String>) -> Self {
+        info!(
+            "Creating RacingLoader with gateway: {}",
+            gateway.as_ref().unwrap_or(&"<No Gateway>".to_string())
+        );
         Self {
             rpc_client,
             gateway,
@@ -123,8 +127,6 @@ impl ContentLoader for RacingLoader {
                     warn!("failed to store: missing store rpc conn");
                 }
             });
-
-            trace!("retrieved from p2p");
 
             Ok(LoadedCid {
                 data: bytes,

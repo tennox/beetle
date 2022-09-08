@@ -3,7 +3,7 @@
 set -e
 
 source utils.sh
-FEATURES=
+FEATURES=uds-gateway
 STRIP=
 OPT=
 BUILD_TYPE=debug

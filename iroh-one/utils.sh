@@ -1,44 +1,4 @@
 #!/bin/bash
-function pack_lib() {
-    local src=$1
-    local dst=$2
-    mkdir -p ${dst}
-    cp ${src}/dist/*.js ${dst}
-    # libsignal has a non bundled file under ${src}/src that we need to copy.
-    [ -d ${src}/js ] &&  cp ${src}/js/*.js ${dst}
-    rm -rf ${dst}/*.gz
-    # Install generated documentation if present
-    [ -f ${src}/generated/*_service.html ] && cp ${src}/generated/*_service.html ${dst}/docs.html
-    gzip --recursive --best --force ${dst}
-}
-
-function release_shared_lib() {
-    local src=common/client
-    local dst=$1/shared
-    local build_type=$2
-
-    pushd ${src} 2>/dev/null
-    yarn install
-    yarn ${build_type}session
-    yarn ${build_type}core
-    popd 2>/dev/null
-
-    pack_lib common/client ${dst}
-}
-
-function release_service_lib() {
-    local service=$1
-    local src=${4:-services/${service}/client}
-    local dst=$2/${service}
-    local build_type=$3
-
-    pushd ${src} 2>/dev/null
-    yarn install
-    yarn ${build_type}
-    popd 2>/dev/null
-
-    pack_lib ${src} ${dst}
-}
 
 function setup_xcompile_envs() {
     # This is the Rust target architecture, which may not directly map to the clang triple.

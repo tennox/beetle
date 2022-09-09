@@ -35,8 +35,9 @@ impl<T: ContentLoader + std::marker::Unpin> Core<T> {
         content_loader: T,
     ) -> anyhow::Result<Self> {
         tokio::spawn(async move {
-            // TODO: handle error
-            rpc::new(rpc_addr, Gateway::default()).await
+            if let Err(err) = rpc::new(rpc_addr, Gateway::default()).await {
+                tracing::error!("Failed to run gateway rpc handler: {}", err);
+            }
         });
         let mut templates = HashMap::new();
         templates.insert("dir_list".to_string(), templates::DIR_LIST.to_string());
@@ -58,8 +59,9 @@ impl<T: ContentLoader + std::marker::Unpin> Core<T> {
         state: Arc<State<T>>,
     ) -> anyhow::Result<Self> {
         tokio::spawn(async move {
-            // TODO: handle error
-            rpc::new(rpc_addr, Gateway::default()).await
+            if let Err(err) = rpc::new(rpc_addr, Gateway::default()).await {
+                tracing::error!("Failed to run gateway rpc handler: {}", err);
+            }
         });
         Ok(Self { state })
     }

@@ -26,7 +26,7 @@
 #![doc(test(attr(warn(rust_2018_idioms))))]
 // Not needed for 2018 edition and conflicts with `rust_2018_idioms`
 #![doc(test(no_crate_inject))]
-#![doc(html_root_url = "https://docs.rs/serde_with_macros/2.0.0")]
+#![doc(html_root_url = "https://docs.rs/serde_with_macros/2.0.1")]
 // Necessary to silence the warning about clippy::unknown_clippy_lints on nightly
 #![allow(renamed_and_removed_lints)]
 // Necessary for nightly clippy lints
@@ -175,16 +175,38 @@ where
         input.attrs.push(consume_serde_as_attribute);
         Ok(quote!(#input))
     } else if let Ok(mut input) = syn::parse::<ItemEnum>(input) {
-        let errors: Vec<DarlingError> = input
+        // Prevent serde_as on enum variants
+        let mut errors: Vec<DarlingError> = input
             .variants
-            .iter_mut()
-            .map(|variant| apply_on_fields(&mut variant.fields, function))
-            // turn the Err variant into the Some, such that we only collect errors
-            .filter_map(|res| match res {
-                Err(e) => Some(e),
-                Ok(()) => None,
+            .iter()
+            .flat_map(|variant| {
+                variant.attrs.iter().filter_map(|attr| {
+                    if attr.path.is_ident("serde_as") {
+                        Some(
+                            DarlingError::custom(
+                                "serde_as attribute is not allowed on enum variants",
+                            )
+                            .with_span(&attr),
+                        )
+                    } else {
+                        None
+                    }
+                })
             })
             .collect();
+        // Process serde_as on all fields
+        errors.extend(
+            input
+                .variants
+                .iter_mut()
+                .map(|variant| apply_on_fields(&mut variant.fields, function))
+                // turn the Err variant into the Some, such that we only collect errors
+                .filter_map(|res| match res {
+                    Err(e) => Some(e),
+                    Ok(()) => None,
+                }),
+        );
+
         if errors.is_empty() {
             input.attrs.push(consume_serde_as_attribute);
             Ok(quote!(#input))
@@ -417,7 +439,10 @@ fn field_has_attribute(field: &Field, namespace: &str, name: &str) -> bool {
 /// Convenience macro to use the [`serde_as`] system.
 ///
 /// The [`serde_as`] system is designed as a more flexible alternative to serde's with-annotation.
-/// The `#[serde_as]` attribute must be placed *before* the `#[derive]` attribute
+/// The `#[serde_as]` attribute must be placed *before* the `#[derive]` attribute.
+/// Each field of a struct or enum can be annotated with `#[serde_as(...)]` to specify which transformations should be applied.
+/// `serde_as` is *not* supported on enum variants.
+/// This is in contrast to `#[serde(with = "...")]`.
 ///
 /// # Example
 ///
@@ -526,8 +551,8 @@ fn field_has_attribute(field: &Field, namespace: &str, name: &str) -> bool {
 /// }
 /// ```
 ///
-/// [`serde_as`]: https://docs.rs/serde_with/2.0.0/serde_with/guide/index.html
-/// [re-exporting `serde_as`]: https://docs.rs/serde_with/2.0.0/serde_with/guide/serde_as/index.html#re-exporting-serde_as
+/// [`serde_as`]: https://docs.rs/serde_with/2.0.1/serde_with/guide/index.html
+/// [re-exporting `serde_as`]: https://docs.rs/serde_with/2.0.1/serde_with/guide/serde_as/index.html#re-exporting-serde_as
 #[proc_macro_attribute]
 pub fn serde_as(args: TokenStream, input: TokenStream) -> TokenStream {
     #[derive(FromMeta)]
@@ -915,7 +940,7 @@ fn has_type_embedded(type_: &Type, embedded_type: &syn::Ident) -> bool {
 /// [`Display`]: std::fmt::Display
 /// [`FromStr`]: std::str::FromStr
 /// [cargo-toml-rename]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#renaming-dependencies-in-cargotoml
-/// [serde-as-crate]: https://docs.rs/serde_with/2.0.0/serde_with/guide/serde_as/index.html#re-exporting-serde_as
+/// [serde-as-crate]: https://docs.rs/serde_with/2.0.1/serde_with/guide/serde_as/index.html#re-exporting-serde_as
 /// [serde-crate]: https://serde.rs/container-attrs.html#crate
 #[proc_macro_derive(DeserializeFromStr, attributes(serde_with))]
 pub fn derive_deserialize_fromstr(item: TokenStream) -> TokenStream {
@@ -935,48 +960,48 @@ pub fn derive_deserialize_fromstr(item: TokenStream) -> TokenStream {
 fn deserialize_fromstr(mut input: DeriveInput, serde_with_crate_path: Path) -> TokenStream2 {
     let ident = input.ident;
     let where_clause = &mut input.generics.make_where_clause().predicates;
-    where_clause.push(parse_quote!(Self: ::std::str::FromStr));
+    where_clause.push(parse_quote!(Self: #serde_with_crate_path::__private__::FromStr));
     where_clause.push(parse_quote!(
-        <Self as ::std::str::FromStr>::Err: ::std::fmt::Display
+        <Self as #serde_with_crate_path::__private__::FromStr>::Err: #serde_with_crate_path::__private__::Display
     ));
     let (de_impl_generics, ty_generics, where_clause) = split_with_de_lifetime(&input.generics);
     quote! {
         #[automatically_derived]
         impl #de_impl_generics #serde_with_crate_path::serde::Deserialize<'de> for #ident #ty_generics #where_clause {
-            fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+            fn deserialize<D>(deserializer: D) -> #serde_with_crate_path::__private__::Result<Self, D::Error>
             where
                 D: #serde_with_crate_path::serde::Deserializer<'de>,
             {
-                struct Helper<S>(::std::marker::PhantomData<S>);
+                struct Helper<S>(#serde_with_crate_path::__private__::PhantomData<S>);
 
                 impl<'de, S> #serde_with_crate_path::serde::de::Visitor<'de> for Helper<S>
                 where
-                    S: ::std::str::FromStr,
-                    <S as ::std::str::FromStr>::Err: ::std::fmt::Display,
+                    S: #serde_with_crate_path::__private__::FromStr,
+                    <S as #serde_with_crate_path::__private__::FromStr>::Err: #serde_with_crate_path::__private__::Display,
                 {
                     type Value = S;
 
-                    fn expecting(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                        ::std::write!(formatter, "string")
+                    fn expecting(&self, formatter: &mut #serde_with_crate_path::core::fmt::Formatter<'_>) -> #serde_with_crate_path::core::fmt::Result {
+                        #serde_with_crate_path::__private__::Display::fmt("a string", formatter)
                     }
 
-                    fn visit_str<E>(self, value: &str) -> ::std::result::Result<Self::Value, E>
+                    fn visit_str<E>(self, value: &str) -> #serde_with_crate_path::__private__::Result<Self::Value, E>
                     where
                         E: #serde_with_crate_path::serde::de::Error,
                     {
                         value.parse::<Self::Value>().map_err(#serde_with_crate_path::serde::de::Error::custom)
                     }
 
-                    fn visit_bytes<E>(self, value: &[u8]) -> ::std::result::Result<Self::Value, E>
+                    fn visit_bytes<E>(self, value: &[u8]) -> #serde_with_crate_path::__private__::Result<Self::Value, E>
                     where
                         E: #serde_with_crate_path::serde::de::Error,
                     {
-                        let utf8 = ::std::str::from_utf8(value).map_err(#serde_with_crate_path::serde::de::Error::custom)?;
+                        let utf8 = #serde_with_crate_path::core::str::from_utf8(value).map_err(#serde_with_crate_path::serde::de::Error::custom)?;
                         self.visit_str(utf8)
                     }
                 }
 
-                deserializer.deserialize_str(Helper(::std::marker::PhantomData))
+                deserializer.deserialize_str(Helper(#serde_with_crate_path::__private__::PhantomData))
             }
         }
     }
@@ -1027,7 +1052,7 @@ fn deserialize_fromstr(mut input: DeriveInput, serde_with_crate_path: Path) -> T
 /// [`Display`]: std::fmt::Display
 /// [`FromStr`]: std::str::FromStr
 /// [cargo-toml-rename]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#renaming-dependencies-in-cargotoml
-/// [serde-as-crate]: https://docs.rs/serde_with/2.0.0/serde_with/guide/serde_as/index.html#re-exporting-serde_as
+/// [serde-as-crate]: https://docs.rs/serde_with/2.0.1/serde_with/guide/serde_as/index.html#re-exporting-serde_as
 /// [serde-crate]: https://serde.rs/container-attrs.html#crate
 #[proc_macro_derive(SerializeDisplay, attributes(serde_with))]
 pub fn derive_serialize_display(item: TokenStream) -> TokenStream {
@@ -1050,12 +1075,12 @@ fn serialize_display(mut input: DeriveInput, serde_with_crate_path: Path) -> Tok
         .generics
         .make_where_clause()
         .predicates
-        .push(parse_quote!(Self: ::std::fmt::Display));
+        .push(parse_quote!(Self: #serde_with_crate_path::__private__::Display));
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     quote! {
         #[automatically_derived]
         impl #impl_generics #serde_with_crate_path::serde::Serialize for #ident #ty_generics #where_clause {
-            fn serialize<S>(&self, serializer: S) -> ::std::result::Result<S::Ok, S::Error>
+            fn serialize<S>(&self, serializer: S) -> #serde_with_crate_path::__private__::Result<S::Ok, S::Error>
             where
                 S: #serde_with_crate_path::serde::Serializer,
             {

@@ -101,10 +101,10 @@ async fn main() -> Result<()> {
 
     let shared_state2 = Arc::clone(&shared_state);
     let core_task = tokio::spawn(async move {
+        let handler = Core::new_with_state(rpc_addr, Arc::clone(&shared_state2))
+            .await
+            .unwrap();
         if config.gateway.port != 0 {
-            let handler = Core::new_with_state(rpc_addr, Arc::clone(&shared_state2))
-                .await
-                .unwrap();
             let server = handler.server();
             println!("HTTP endpoint listening on {}", server.local_addr());
             server.await.unwrap();

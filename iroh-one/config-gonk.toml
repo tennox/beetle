@@ -1,6 +1,7 @@
 # iroh-one device configuration
 
 gateway_uds_path = '/dev/socket/ipfsd.http'
+resolver_gateway = 'dweb.link'
 
 [rpc_client]
 gateway_addr = "grpc:///dev/socket/iroh-one-rpc"

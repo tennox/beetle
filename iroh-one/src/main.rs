@@ -4,15 +4,19 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use iroh_gateway::{bad_bits::BadBits, core::Core, metrics};
+#[cfg(not(target_os = "android"))]
+use iroh_one::config::CONFIG_FILE_NAME;
 #[cfg(feature = "uds-gateway")]
 use iroh_one::uds;
 use iroh_one::{
     cli::Args,
-    config::{Config, CONFIG_FILE_NAME, ENV_PREFIX},
+    config::{Config, ENV_PREFIX},
 };
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_types::Addr;
-use iroh_util::{iroh_config_path, make_config};
+#[cfg(not(target_os = "android"))]
+use iroh_util::iroh_config_path;
+use iroh_util::make_config;
 #[cfg(feature = "uds-gateway")]
 use tempdir::TempDir;
 use tokio::sync::RwLock;
@@ -22,8 +26,14 @@ use tracing::{debug, error};
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let cfg_path = iroh_config_path(CONFIG_FILE_NAME)?;
-    let sources = vec![Some(cfg_path), args.cfg.clone()];
+    #[cfg(not(target_os = "android"))]
+    let sources = vec![Some(iroh_config_path(CONFIG_FILE_NAME)?), args.cfg.clone()];
+
+    // Don't try to use the "system default" config path on Android since it's not supported by the
+    // `dirs_next` crate.
+    #[cfg(target_os = "android")]
+    let sources = vec![args.cfg.clone()];
+
     let mut config = make_config(
         // default
         Config::default(),

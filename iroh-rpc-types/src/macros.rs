@@ -33,8 +33,6 @@ macro_rules! proxy {
                         if path.exists() {
                             if path.is_dir() {
                                 anyhow::bail!("cannot bind socket to directory: {}", path.display());
-                            } else {
-                                anyhow::bail!("cannot bind socket: already exists: {}", path.display());
                             }
                         }
 

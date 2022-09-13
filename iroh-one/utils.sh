@@ -50,8 +50,8 @@ function setup_xcompile_envs() {
         echo "Building for aarch64-apple-darwin"
         export SYSROOT=${OSX_CROSS}/MacOSX11.0.sdk/
         export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
-        export TOOLCHAIN_CC=clang
-        export TOOLCHAIN_CXX=clang++
+        export TOOLCHAIN_CC=${OSX_CROSS}/clang/bin/clang
+        export TOOLCHAIN_CXX=${OSX_CROSS}/clang/bin/clang++
         export PATH=${OSX_CROSS}/cctools/bin:${OSX_CROSS}/clang/bin:${PATH}
         export LINKER=aarch64-apple-darwin-ld
         export LD=aarch64-apple-darwin-ld
@@ -59,8 +59,8 @@ function setup_xcompile_envs() {
         echo "Building for aarch64-apple-darwin"
         export SYSROOT=${OSX_CROSS}/MacOSX11.0.sdk/
         export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
-        export TOOLCHAIN_CC=clang
-        export TOOLCHAIN_CXX=clang++
+        export TOOLCHAIN_CC=${OSX_CROSS}/clang/bin/clang
+        export TOOLCHAIN_CXX=${OSX_CROSS}/clang/bin/clang++
         export PATH=${OSX_CROSS}/cctools/bin:${OSX_CROSS}/clang/bin:${PATH}
         export LINKER=x86_64-apple-darwin-ld
         export LD=x86_64-apple-darwin-ld
@@ -96,8 +96,14 @@ function setup_xcompile_envs() {
         exit 2
     fi
 
-    XCFLAGS="--sysroot=${SYSROOT} -I${SYS_INCLUDE_DIR} -I${SYS_INCLUDE_DIR}/${TARGET_INCLUDE}"
+    XCFLAGS="-fPIC --sysroot=${SYSROOT} -I${SYS_INCLUDE_DIR} -I${SYS_INCLUDE_DIR}/${TARGET_INCLUDE}"
 
+    # Needed when cross-compiling rocksdb
+    export BINDGEN_EXTRA_CLANG_ARGS=${XCFLAGS}
+    export CRATE_CC_NO_DEFAULTS=1
+    # See https://gitanswer.net/error-thread-local-storage-is-not-supported-for-the-current-target-706365770
+    export MACOSX_DEPLOYMENT_TARGET=11.0
+ 
     export GIT_BUILD_INFO=$(
         git log -n 1 --pretty=format:"%H "
         date +%d/%m/%Y-%H:%M:%S
@@ -150,6 +156,7 @@ EOF
   "-C", "link-arg=${SYSROOT}/usr/lib",
   "-C", "link-arg=-L",
   "-C", "link-arg=${SYSROOT}/usr/lib/${TARGET_INCLUDE}",
+  "-C", "link-arg=-v",
 ]
 EOF
     else
@@ -165,20 +172,21 @@ EOF
     fi
 
     # unset the sysroot for the `backtrace` build deps so they don't pick up the wrong sysroot.
-    unset CFLAGS
+    # unset CFLAGS
 
     # To add /usr/bin to $PATH, in order for host builds
     # of Rust crates to find 'cc' as a linker.
     # TODO: find a proper fix.
-    export PATH=${PATH}:/usr/bin
+    # export PATH=${PATH}:/usr/bin
 
     export CC=${TOOLCHAIN_CC}
     export CXX=${TOOLCHAIN_CXX}
     export LD=${LINKER}
 
     # And set CFLAGS again for the remaining crates.
-    export CFLAGS=${XCFLAGS}
-
+    export CFLAGS="${XCFLAGS} --target=${TARGET_TRIPLE}"
+    export CXXFLAGS="${XCFLAGS} -stdlib=libc++  --target=${TARGET_TRIPLE}"
+ 
     export TARGET_CC=${TOOLCHAIN_CC}
     export TARGET_LD=${TOOLCHAIN_CC}
 
@@ -193,7 +201,7 @@ EOF
 # export TARGET_LD=${TOOLCHAIN_CC}
 # EOF
 
-#     printenv
+    printenv
     rustc --version
     cargo --version
     cargo build --target=${TARGET_TRIPLE} --features=${FEATURES} ${OPT}

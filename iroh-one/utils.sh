@@ -177,7 +177,7 @@ EOF
     # To add /usr/bin to $PATH, in order for host builds
     # of Rust crates to find 'cc' as a linker.
     # TODO: find a proper fix.
-    # export PATH=${PATH}:/usr/bin
+    export PATH=${PATH}:/usr/bin
 
     export CC=${TOOLCHAIN_CC}
     export CXX=${TOOLCHAIN_CXX}

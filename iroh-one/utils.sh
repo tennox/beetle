@@ -8,6 +8,7 @@ function setup_xcompile_envs() {
     export ANDROID_API=${ANDROID_API:-29}
     export ANDROID_PLATFORM=${ANDROID_PLATFORM:-android-29}
     LIB_SUFFIX=""
+    IS_MACOS=0
 
     case "$TARGET_ARCH" in
     armv7-linux-androideabi)
@@ -31,11 +32,13 @@ function setup_xcompile_envs() {
         TARGET_TRIPLE=aarch64-apple-darwin
         TARGET_INCLUDE=${TARGET_TRIPLE}
         LIB_SUFFIX=64
+	IS_MACOS=1
         ;;
     x86_64-apple-darwin)
         TARGET_TRIPLE=x86_64-apple-darwin
         TARGET_INCLUDE=${TARGET_TRIPLE}
         LIB_SUFFIX=64
+	IS_MACOS=1
         ;;
     aarch64-unknown-linux-gnu)
         # Non-android targets will use the toolchain installed in $HOME/.mozbuild
@@ -98,11 +101,13 @@ function setup_xcompile_envs() {
 
     XCFLAGS="-fPIC --sysroot=${SYSROOT} -I${SYS_INCLUDE_DIR} -I${SYS_INCLUDE_DIR}/${TARGET_INCLUDE}"
 
-    # Needed when cross-compiling rocksdb
-    export BINDGEN_EXTRA_CLANG_ARGS=${XCFLAGS}
-    export CRATE_CC_NO_DEFAULTS=1
-    # See https://gitanswer.net/error-thread-local-storage-is-not-supported-for-the-current-target-706365770
-    export MACOSX_DEPLOYMENT_TARGET=11.0
+    if [ "$IS_MACOS" = 1 ]; then
+    	# Needed when cross-compiling rocksdb
+    	export BINDGEN_EXTRA_CLANG_ARGS=${XCFLAGS}
+    	export CRATE_CC_NO_DEFAULTS=1
+    	# See https://gitanswer.net/error-thread-local-storage-is-not-supported-for-the-current-target-706365770
+    	export MACOSX_DEPLOYMENT_TARGET=11.0
+    fi
  
     export GIT_BUILD_INFO=$(
         git log -n 1 --pretty=format:"%H "
@@ -172,7 +177,7 @@ EOF
     fi
 
     # unset the sysroot for the `backtrace` build deps so they don't pick up the wrong sysroot.
-    # unset CFLAGS
+    unset CFLAGS
 
     # To add /usr/bin to $PATH, in order for host builds
     # of Rust crates to find 'cc' as a linker.

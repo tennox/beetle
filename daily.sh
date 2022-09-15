@@ -15,13 +15,13 @@ function build_target() {
     rm -rf prebuilts/
     mkdir -p prebuilts/${TARGET_ARCH}
 
-    pushd iroh-one 
+    pushd iroh-one
     cargo build --release --target=${TARGET_ARCH} ${FEATURES}
     popd
 
     cp target/${TARGET_ARCH}/release/iroh-one prebuilts/${TARGET_ARCH}/ipfsd
     ${STRIP} prebuilts/${TARGET_ARCH}/ipfsd
-    
+
     tar cJf ipfsd-${TARGET_ARCH}.tar.xz prebuilts
 }
 

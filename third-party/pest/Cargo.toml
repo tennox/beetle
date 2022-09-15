@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.56"
 name = "pest"
-version = "2.3.0"
+version = "2.3.1"
 authors = ["Dragoș Tiselice <dragostiselice@gmail.com>"]
 description = "The Elegant Parser"
 homepage = "https://pest-parser.github.io/"
@@ -28,6 +28,14 @@ keywords = [
 categories = ["parsing"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/pest-parser/pest"
+
+[dependencies.bytecount]
+version = "0.6"
+optional = true
+
+[dependencies.memchr]
+version = "2"
+optional = true
 
 [dependencies.serde]
 version = "1.0.89"
@@ -48,6 +56,10 @@ default-features = false
 [features]
 const_prec_climber = []
 default = ["std"]
+fast-line-col = [
+    "memchr",
+    "bytecount",
+]
 pretty-print = [
     "serde",
     "serde_json",

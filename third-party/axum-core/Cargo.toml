@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "axum-core"
-version = "0.2.7"
+version = "0.2.8"
 description = "Core types and traits for axum"
 homepage = "https://github.com/tokio-rs/axum"
 readme = "README.md"
@@ -49,6 +49,12 @@ version = "0.4.5"
 [dependencies.mime]
 version = "0.3.16"
 
+[dependencies.tower-layer]
+version = "0.3"
+
+[dependencies.tower-service]
+version = "0.3"
+
 [dev-dependencies.axum]
 version = "0.5"
 
@@ -61,3 +67,7 @@ version = "0.14"
 [dev-dependencies.tokio]
 version = "1.0"
 features = ["macros"]
+
+[dev-dependencies.tower-http]
+version = "0.3.4"
+features = ["limit"]

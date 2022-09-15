@@ -47,6 +47,7 @@ pub mod header_map {
     use std::fmt;
 
     struct ToSeq<'a>(GetAll<'a, HeaderValue>);
+
     impl<'a> Serialize for ToSeq<'a> {
         fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
             let count = self.0.iter().count();
@@ -175,6 +176,7 @@ pub mod status_code {
     }
 
     struct StatusVisitor;
+
     impl<'de> Visitor<'de> for StatusVisitor {
         type Value = StatusCode;
 
@@ -237,6 +239,7 @@ pub mod method {
     }
 
     struct MethodVisitor;
+
     impl<'de> Visitor<'de> for MethodVisitor {
         type Value = Method;
 
@@ -276,6 +279,7 @@ pub mod uri {
     }
 
     struct UriVisitor;
+
     impl<'de> Visitor<'de> for UriVisitor {
         type Value = Uri;
 
@@ -295,8 +299,8 @@ pub mod uri {
 
     /// Implementation detail.
     pub fn deserialize<'de, D>(de: D) -> Result<Uri, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         de.deserialize_str(UriVisitor)
     }
@@ -319,6 +323,7 @@ pub mod authority {
     }
 
     struct AuthorityVisitor;
+
     impl<'de> Visitor<'de> for AuthorityVisitor {
         type Value = Authority;
 
@@ -342,5 +347,51 @@ pub mod authority {
         D: Deserializer<'de>,
     {
         de.deserialize_str(AuthorityVisitor)
+    }
+}
+
+/// For `http::uri::Authority`
+///
+/// `#[serde(with = "http_serde::authority")]`
+pub mod version {
+    use http::Version;
+    use serde::de::{Unexpected, Visitor};
+    use serde::{de, Deserializer, Serializer};
+    use std::fmt::Formatter;
+
+    pub fn serialize<S: Serializer>(version: &Version, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(format!("{:?}", version).as_str())
+    }
+
+    struct VersionVisitor;
+
+    impl<'de> Visitor<'de> for VersionVisitor {
+        type Value = Version;
+
+        fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+            write!(formatter, "valid version")
+        }
+
+        fn visit_str<E: de::Error>(self, val: &str) -> Result<Self::Value, E> {
+            Ok(match val {
+                "HTTP/0.9" => Version::HTTP_09,
+                "HTTP/1.0" => Version::HTTP_10,
+                "HTTP/1.1" => Version::HTTP_11,
+                "HTTP/2.0" => Version::HTTP_2,
+                "HTTP/3.0" => Version::HTTP_3,
+                _ => Err(de::Error::invalid_value(Unexpected::Str(val), &self))?,
+            })
+        }
+
+        fn visit_string<E: de::Error>(self, val: String) -> Result<Self::Value, E> {
+            self.visit_str(val.as_str())
+        }
+    }
+
+    pub fn deserialize<'de, D>(de: D) -> Result<Version, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        de.deserialize_str(VersionVisitor)
     }
 }

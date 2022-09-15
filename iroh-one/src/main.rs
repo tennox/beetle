@@ -24,6 +24,9 @@ use tracing::{debug, error};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    #[cfg(target_os = "android")]
+    android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Debug));
+
     let args = Args::parse();
 
     #[cfg(not(target_os = "android"))]

@@ -107,6 +107,7 @@ fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
         .pretty()
         .with_filter(EnvFilter::from_default_env());
     if !cfg.tracing {
+        #[cfg(not(target_os = "android"))]
         tracing_subscriber::registry().with(log_subscriber).init();
     } else {
         global::set_text_map_propagator(TraceContextPropagator::new());

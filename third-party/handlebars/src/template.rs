@@ -508,8 +508,8 @@ impl Template {
         }
     }
 
-    pub(crate) fn compile2<'a>(
-        source: &'a str,
+    pub(crate) fn compile2(
+        source: &str,
         options: TemplateOptions,
     ) -> Result<Template, TemplateError> {
         let mut helper_stack: VecDeque<HelperTemplate> = VecDeque::new();
@@ -1010,7 +1010,7 @@ mod test {
 
         let terr = Template::compile(source).unwrap_err();
 
-        assert!(matches!(terr.reason, TemplateErrorReason::InvalidSyntax));
+        assert!(matches!(terr.reason(), TemplateErrorReason::InvalidSyntax));
         assert_eq!(terr.line_no.unwrap(), 4);
         assert_eq!(terr.column_no.unwrap(), 5);
     }
@@ -1126,16 +1126,10 @@ mod test {
         let sources = ["{{invalid", "{{{invalid", "{{invalid}", "{{!hello"];
         for s in sources.iter() {
             let result = Template::compile(s.to_owned());
-            if let Err(e) = result {
-                match e.reason {
-                    TemplateErrorReason::InvalidSyntax => {}
-                    _ => {
-                        panic!("Unexpected error type {}", e);
-                    }
-                }
-            } else {
-                panic!("Undetected error");
-            }
+            assert!(matches!(
+                *result.unwrap_err().reason(),
+                TemplateErrorReason::InvalidSyntax
+            ));
         }
     }
 
@@ -1316,6 +1310,6 @@ mod test {
         let s = "{{#>(X)}}{{/X}}";
         let result = Template::compile(s);
         assert!(result.is_err());
-        assert_eq!("decorator \"Subexpression(Subexpression { element: Expression(HelperTemplate { name: Path(Relative(([Named(\\\"X\\\")], \\\"X\\\"))), params: [], hash: {}, block_param: None, template: None, inverse: None, block: false }) })\" was opened, but \"X\" is closing", format!("{}", result.unwrap_err().reason));
+        assert_eq!("decorator \"Subexpression(Subexpression { element: Expression(HelperTemplate { name: Path(Relative(([Named(\\\"X\\\")], \\\"X\\\"))), params: [], hash: {}, block_param: None, template: None, inverse: None, block: false }) })\" was opened, but \"X\" is closing", format!("{}", result.unwrap_err().reason()));
     }
 }

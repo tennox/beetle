@@ -206,10 +206,14 @@
     clippy::doc_markdown,
     clippy::module_name_repetitions,
     clippy::return_self_not_must_use,
+    clippy::wildcard_imports,
 )]
+#![cfg_attr(provide_any, feature(provide_any))]
 
 mod aserror;
 mod display;
+#[cfg(provide_any)]
+mod provide;
 
 pub use thiserror_impl::*;
 
@@ -218,4 +222,6 @@ pub use thiserror_impl::*;
 pub mod __private {
     pub use crate::aserror::AsDynError;
     pub use crate::display::{DisplayAsDisplay, PathAsDisplay};
+    #[cfg(provide_any)]
+    pub use crate::provide::ThiserrorProvide;
 }

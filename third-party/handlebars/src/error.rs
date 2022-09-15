@@ -1,4 +1,3 @@
-// use std::backtrace::Backtrace;
 use std::error::Error as StdError;
 use std::fmt::{self, Write};
 use std::io::Error as IOError;
@@ -152,6 +151,7 @@ pub enum TemplateErrorReason {
 /// Error on parsing template.
 #[derive(Debug, Error)]
 pub struct TemplateError {
+    #[deprecated(note = "public access to reason to be removed soon, use .reason() instead.")]
     pub reason: TemplateErrorReason,
     pub template_name: Option<String>,
     pub line_no: Option<usize>,
@@ -160,6 +160,7 @@ pub struct TemplateError {
 }
 
 impl TemplateError {
+    #[allow(deprecated)]
     pub fn of(e: TemplateErrorReason) -> TemplateError {
         TemplateError {
             reason: e,
@@ -180,6 +181,12 @@ impl TemplateError {
     pub fn in_template(mut self, name: String) -> TemplateError {
         self.template_name = Some(name);
         self
+    }
+
+    /// Get underlying reason for the error
+    #[allow(deprecated)]
+    pub fn reason(&self) -> &TemplateErrorReason {
+        &self.reason
     }
 }
 
@@ -229,16 +236,16 @@ impl fmt::Display for TemplateError {
             (Some(line), Some(col), &Some(ref seg)) => writeln!(
                 f,
                 "Template error: {}\n    --> Template error in \"{}\":{}:{}\n     |\n{}     |\n     = reason: {}",
-                self.reason,
+                self.reason(),
                 self.template_name
                     .as_ref()
                     .unwrap_or(&"Unnamed template".to_owned()),
                 line,
                 col,
                 seg,
-                self.reason
+                self.reason()
             ),
-            _ => write!(f, "{}", self.reason),
+            _ => write!(f, "{}", self.reason()),
         }
     }
 }

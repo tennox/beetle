@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "iana-time-zone"
-version = "0.1.47"
+version = "0.1.48"
 authors = ["Andrew Straw <strawman@astraw.com>"]
 description = "get the IANA time zone for the current system"
 readme = "README.md"
@@ -35,13 +35,13 @@ fallback = []
 version = "0.8.3"
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.js-sys]
-version = "0.3.58"
+version = "0.3.46"
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.wasm-bindgen]
-version = "0.2.81"
+version = "0.2.70"
 
 [target."cfg(target_arch = \"wasm32\")".dev-dependencies.wasm-bindgen-test]
-version = "0.3.31"
+version = "0.3"
 
 [target."cfg(target_os = \"android\")".dependencies.android_system_properties]
 version = "0.1.5"

@@ -1,5 +1,13 @@
 # Change Log
 
+## [4.3.4](https://github.com/sunng87/handlebars-rust/compare/4.3.3...4.3.4) - 2022-09-11
+
+* [Added] New `write_fmt` function for `Output` [#522]
+* [Added] `reason()` method for `TemplateError` to access underlying reason,
+  this replaces original direct `.reason` access.
+* [Changed] Direct access to `TemplateError`'s `reason` field is depreacted will
+  be removed in future.
+
 ## [4.3.3](https://github.com/sunng87/handlebars-rust/compare/4.3.2...4.3.3) - 2022-07-20
 
 * [Fixed] Disable partial expression indentation with `{{~> partial}}` to

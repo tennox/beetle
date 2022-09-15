@@ -164,9 +164,26 @@ compile_error!(
     Use the `rand-preview` feature instead."
 );
 
+#[cfg(feature = "hazmat-preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "hazmat-preview")))]
+pub mod hazmat;
+
+mod error;
+mod keypair;
+mod signature;
+mod signer;
+mod verifier;
+
 #[cfg(feature = "derive-preview")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive-preview")))]
 pub use signature_derive::{Signer, Verifier};
+
+#[cfg(all(feature = "derive-preview", feature = "digest-preview"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(feature = "derive-preview", feature = "digest-preview")))
+)]
+pub use signature_derive::{DigestSigner, DigestVerifier};
 
 #[cfg(feature = "digest-preview")]
 pub use digest;
@@ -174,11 +191,5 @@ pub use digest;
 #[cfg(feature = "rand-preview")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand-preview")))]
 pub use rand_core;
-
-mod error;
-mod keypair;
-mod signature;
-mod signer;
-mod verifier;
 
 pub use crate::{error::*, keypair::*, signature::*, signer::*, verifier::*};

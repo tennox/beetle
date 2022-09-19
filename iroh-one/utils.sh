@@ -86,12 +86,12 @@ function setup_xcompile_envs() {
 
         echo "Building for ${TARGET_TRIPLE} using NDK '${BUILD_WITH_NDK_DIR}'"
     elif [ -n "${MOZBUILD}" ]; then
-        export TOOLCHAIN_CC=clang
-        export TOOLCHAIN_CXX=clang++
+        export TOOLCHAIN_CC=${MOZBUILD}/clang/bin/clang
+        export TOOLCHAIN_CXX=${MOZBUILD}/clang/bin/clang++
         export SYSROOT=${MOZBUILD}/sysroot-${TARGET_INCLUDE}
         export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
         export PATH=${MOZBUILD}/clang/bin:${PATH}
-        export LINKER=clang
+        export LINKER=${MOZBUILD}/clang/bin/clang
 
         echo "Building for ${TARGET_TRIPLE} using MOZBUILD '${MOZBUILD}'"
     else
@@ -100,6 +100,7 @@ function setup_xcompile_envs() {
     fi
 
     XCFLAGS="-fPIC --sysroot=${SYSROOT} -I${SYS_INCLUDE_DIR} -I${SYS_INCLUDE_DIR}/${TARGET_INCLUDE}"
+    CXXEXTRAS=""
 
     if [ "$IS_MACOS" = 1 ]; then
     	# Needed when cross-compiling rocksdb
@@ -107,6 +108,12 @@ function setup_xcompile_envs() {
     	export CRATE_CC_NO_DEFAULTS=1
     	# See https://gitanswer.net/error-thread-local-storage-is-not-supported-for-the-current-target-706365770
     	export MACOSX_DEPLOYMENT_TARGET=11.0
+        CXXEXTRAS="-stdlib=libc++"
+    fi
+
+    if [ -n "${MOZBUILD}" ]; then
+        export BINDGEN_EXTRA_CLANG_ARGS=${XCFLAGS}
+	export CRATE_CC_NO_DEFAULTS=1
     fi
  
     export GIT_BUILD_INFO=$(
@@ -176,9 +183,6 @@ EOF
 EOF
     fi
 
-    # unset the sysroot for the `backtrace` build deps so they don't pick up the wrong sysroot.
-    unset CFLAGS
-
     # To add /usr/bin to $PATH, in order for host builds
     # of Rust crates to find 'cc' as a linker.
     # TODO: find a proper fix.
@@ -190,7 +194,7 @@ EOF
 
     # And set CFLAGS again for the remaining crates.
     export CFLAGS="${XCFLAGS} --target=${TARGET_TRIPLE}"
-    export CXXFLAGS="${XCFLAGS} -stdlib=libc++  --target=${TARGET_TRIPLE}"
+    export CXXFLAGS="${XCFLAGS} ${CXXEXTRAS} --target=${TARGET_TRIPLE}"
  
     export TARGET_CC=${TOOLCHAIN_CC}
     export TARGET_LD=${TOOLCHAIN_CC}

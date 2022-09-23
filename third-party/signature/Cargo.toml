@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.56"
 name = "signature"
-version = "1.6.2"
+version = "1.6.3"
 authors = ["RustCrypto Developers"]
 description = "Traits for cryptographic signature algorithms (e.g. ECDSA, Ed25519)"
 documentation = "https://docs.rs/signature"
@@ -51,7 +51,7 @@ optional = true
 default-features = false
 
 [dependencies.signature_derive]
-version = "=1.0.0-pre.6"
+version = "=1.0.0-pre.7"
 optional = true
 
 [dev-dependencies.hex-literal]

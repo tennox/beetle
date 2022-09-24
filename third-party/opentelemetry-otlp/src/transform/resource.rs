@@ -1,5 +1,5 @@
-#[cfg(feature = "tonic")]
-use crate::proto::{common::v1::KeyValue, resource::v1::Resource};
+#[cfg(feature = "grpc-tonic")]
+use opentelemetry_proto::tonic::{common::v1::KeyValue, resource::v1::Resource};
 use std::cmp::Ordering;
 
 #[derive(PartialEq)]
@@ -25,7 +25,15 @@ impl PartialOrd for ResourceWrapper {
     }
 }
 
-#[cfg(feature = "tonic")]
+impl ResourceWrapper {
+    #[cfg(all(feature = "grpc-tonic", feature = "metrics"))]
+    // it's currently only used by metrics. Trace set this in opentelemtry-proto
+    pub(crate) fn schema_url(&self) -> Option<&str> {
+        self.0.schema_url()
+    }
+}
+
+#[cfg(feature = "grpc-tonic")]
 impl From<ResourceWrapper> for Resource {
     fn from(resource: ResourceWrapper) -> Self {
         Resource {

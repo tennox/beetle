@@ -9,7 +9,7 @@
 //! [OpenTelemetry]: https://opentelemetry.io
 //! [`tracing`]: https://github.com/tokio-rs/tracing
 //!
-//! *Compiler support: [requires `rustc` 1.49+][msrv]*
+//! *Compiler support: [requires `rustc` 1.56+][msrv]*
 //!
 //! [msrv]: #supported-rust-versions
 //!
@@ -76,10 +76,17 @@
 //! });
 //! ```
 //!
+//! ## Feature Flags
+//!
+//! - `metrics`: Enables the [`MetricsSubscriber`] type, a [subscriber] that
+//!   exports OpenTelemetry metrics from specifically-named events. This enables
+//!   the `metrics` feature flag on the `opentelemetry` crate.  *Enabled by
+//!   default*.
+//!
 //! ## Supported Rust Versions
 //!
 //! Tracing is built against the latest stable release. The minimum supported
-//! version is 1.49. The current Tracing version is not guaranteed to build on
+//! version is 1.56. The current Tracing version is not guaranteed to build on
 //! Rust versions earlier than the minimum supported version.
 //!
 //! Tracing follows the same compiler support policies as the rest of the Tokio
@@ -90,14 +97,27 @@
 //! supported compiler version is not considered a semver breaking change as
 //! long as doing so complies with this policy.
 //!
+//! [subscriber]: tracing_subscriber::subscribe
 #![deny(unreachable_pub)]
 #![cfg_attr(test, deny(warnings))]
-#![doc(html_root_url = "https://docs.rs/tracing-opentelemetry/0.17.4")]
+#![doc(html_root_url = "https://docs.rs/tracing-opentelemetry/0.18.0")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/tracing/master/assets/logo-type.png",
     issue_tracker_base_url = "https://github.com/tokio-rs/tracing/issues/"
 )]
-#![cfg_attr(docsrs, deny(rustdoc::broken_intra_doc_links))]
+#![cfg_attr(
+    docsrs,
+    // Allows displaying cfgs/feature flags in the documentation.
+    feature(doc_cfg, doc_auto_cfg),
+    // Allows adding traits to RustDoc's list of "notable traits"
+    feature(doc_notable_trait),
+    // Fail the docs build if any intra-docs links are broken
+    deny(rustdoc::broken_intra_doc_links),
+)]
+
+/// Implementation of the trace::Subscriber trait; publishes OpenTelemetry metrics.
+#[cfg(feature = "metrics")]
+mod metrics;
 
 /// Implementation of the trace::Layer as a source of OpenTelemetry data.
 mod layer;
@@ -107,6 +127,9 @@ mod span_ext;
 mod tracer;
 
 pub use layer::{layer, OpenTelemetryLayer};
+
+#[cfg(feature = "metrics")]
+pub use metrics::MetricsLayer;
 pub use span_ext::OpenTelemetrySpanExt;
 pub use tracer::PreSampledTracer;
 

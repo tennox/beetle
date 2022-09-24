@@ -10,21 +10,35 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56"
 name = "opentelemetry-otlp"
-version = "0.10.0"
-build = "build.rs"
+version = "0.11.0"
 autotests = false
 description = "Exporter for the OpenTelemetry Collector"
 homepage = "https://github.com/open-telemetry/opentelemetry-rust/tree/main/opentelemetry-otlp"
 readme = "README.md"
-keywords = ["opentelemetry", "otlp", "logging", "tracing", "metrics"]
-categories = ["development-tools::debugging", "development-tools::profiling", "asynchronous"]
+keywords = [
+    "opentelemetry",
+    "otlp",
+    "logging",
+    "tracing",
+    "metrics",
+]
+categories = [
+    "development-tools::debugging",
+    "development-tools::profiling",
+    "asynchronous",
+]
 license = "Apache-2.0"
 repository = "https://github.com/open-telemetry/opentelemetry-rust/tree/main/opentelemetry-otlp"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
 
 [lib]
 doctest = false
@@ -34,10 +48,6 @@ name = "smoke"
 path = "tests/smoke.rs"
 required-features = ["integration-testing"]
 
-[[test]]
-name = "grpc_build"
-path = "tests/grpc_build.rs"
-required-features = ["grpc-sys"]
 [dependencies.async-trait]
 version = "0.1"
 
@@ -57,18 +67,23 @@ optional = true
 
 [dependencies.http]
 version = "0.2"
+optional = true
 
 [dependencies.opentelemetry]
-version = "0.17"
+version = "0.18"
 features = ["trace"]
 default-features = false
 
 [dependencies.opentelemetry-http]
-version = "0.6"
+version = "0.7"
 optional = true
 
+[dependencies.opentelemetry-proto]
+version = "0.1"
+default-features = false
+
 [dependencies.prost]
-version = "0.9"
+version = "0.11.0"
 optional = true
 
 [dependencies.protobuf]
@@ -95,48 +110,93 @@ version = "1.0"
 
 [dependencies.tokio]
 version = "1.0"
-features = ["full"]
+features = [
+    "sync",
+    "rt",
+]
 optional = true
 
 [dependencies.tonic]
-version = "0.6.2"
+version = "0.8.0"
 optional = true
-[dev-dependencies.protobuf-codegen]
-version = "2.16"
-
-[dev-dependencies.protoc-grpcio]
-version = "3.0"
 
 [dev-dependencies.time]
 version = "0.3"
 features = ["macros"]
 
+[dev-dependencies.tokio]
+version = "1.0"
+features = [
+    "macros",
+    "rt-multi-thread",
+]
+
 [dev-dependencies.tokio-stream]
 version = "0.1"
 features = ["net"]
-[build-dependencies.prost-build]
-version = "0.9"
-optional = true
-
-[build-dependencies.tonic-build]
-version = "0.6.2"
-features = ["transport", "prost"]
-optional = true
-default-features = false
 
 [features]
-default = ["tonic", "tonic-build", "prost", "tokio"]
-grpc-sys = ["grpcio", "protobuf"]
-http-proto = ["prost-build", "prost", "opentelemetry-http"]
-integration-testing = ["tonic", "tonic-build", "prost", "tokio/full", "opentelemetry/trace"]
-metrics = ["opentelemetry/metrics", "default"]
+default = [
+    "grpc-tonic",
+    "trace",
+]
+grpc-sys = [
+    "grpcio",
+    "opentelemetry-proto/gen-protoc",
+    "protobuf",
+]
+grpc-tonic = [
+    "tonic",
+    "prost",
+    "http",
+    "tokio",
+    "opentelemetry-proto/gen-tonic",
+    "opentelemetry-proto/build-client",
+]
+http-proto = [
+    "prost",
+    "opentelemetry-http",
+    "opentelemetry-proto/gen-tonic",
+    "http",
+    "trace",
+]
+integration-testing = [
+    "tonic",
+    "prost",
+    "tokio/full",
+    "trace",
+    "opentelemetry-proto/build-server",
+]
+metrics = [
+    "opentelemetry/metrics",
+    "opentelemetry-proto/metrics",
+    "grpc-tonic",
+]
 openssl = ["grpcio/openssl"]
 openssl-vendored = ["grpcio/openssl-vendored"]
-reqwest-blocking-client = ["reqwest/blocking", "opentelemetry-http/reqwest"]
-reqwest-client = ["reqwest", "opentelemetry-http/reqwest"]
-reqwest-rustls = ["reqwest", "reqwest/rustls-tls-native-roots"]
+reqwest-blocking-client = [
+    "reqwest/blocking",
+    "opentelemetry-http/reqwest",
+]
+reqwest-client = [
+    "reqwest",
+    "opentelemetry-http/reqwest",
+]
+reqwest-rustls = [
+    "reqwest",
+    "reqwest/rustls-tls-native-roots",
+]
 serialize = ["serde"]
-surf-client = ["surf", "opentelemetry-http/surf"]
+surf-client = [
+    "surf",
+    "opentelemetry-http/surf",
+]
 tls = ["tonic/tls"]
-tls-roots = ["tls", "tonic/tls-roots"]
-trace = ["opentelemetry/trace"]
+tls-roots = [
+    "tls",
+    "tonic/tls-roots",
+]
+trace = [
+    "opentelemetry/trace",
+    "opentelemetry-proto/traces",
+]

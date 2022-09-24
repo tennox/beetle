@@ -1,11 +1,24 @@
-#[cfg(feature = "tonic")]
+#[cfg(feature = "grpc-tonic")]
 // The prost currently will generate a non optional deprecated field for labels.
 // We cannot assign value to it otherwise clippy will complain.
 // We cannot ignore it as it's not an optional field.
 // We can remove this after we removed the labels field from proto.
 #[allow(deprecated)]
 pub(crate) mod tonic {
-    use crate::proto::{
+    use opentelemetry::metrics::MetricsError;
+    use opentelemetry::sdk::export::metrics::{
+        aggregation::{
+            Count, Histogram as SdkHistogram, LastValue, Sum as SdkSum, TemporalitySelector,
+        },
+        Record,
+    };
+    use opentelemetry::sdk::metrics::aggregators::{
+        HistogramAggregator, LastValueAggregator, SumAggregator,
+    };
+    use opentelemetry::sdk::InstrumentationLibrary;
+    use opentelemetry_proto::tonic::metrics::v1::DataPointFlags;
+    use opentelemetry_proto::tonic::FromNumber;
+    use opentelemetry_proto::tonic::{
         collector::metrics::v1::ExportMetricsServiceRequest,
         common::v1::KeyValue,
         metrics::v1::{
@@ -14,56 +27,14 @@ pub(crate) mod tonic {
             ResourceMetrics, Sum,
         },
     };
-    use opentelemetry::metrics::{MetricsError, Number, NumberKind};
-    use opentelemetry::sdk::export::metrics::{
-        Count, ExportKind, ExportKindFor, Histogram as SdkHistogram, LastValue, Max, Min, Points,
-        Record, Sum as SdkSum,
-    };
-    use opentelemetry::sdk::metrics::aggregators::{
-        ArrayAggregator, HistogramAggregator, LastValueAggregator, MinMaxSumCountAggregator,
-        SumAggregator,
-    };
 
-    use crate::transform::common::to_nanos;
+    use crate::to_nanos;
     use crate::transform::{CheckpointedMetrics, ResourceWrapper};
-    use opentelemetry::sdk::InstrumentationLibrary;
-    use opentelemetry::{Key, Value};
     use std::collections::{BTreeMap, HashMap};
-
-    type NumberWithKind<'a> = (Number, &'a NumberKind);
-
-    impl From<(&Key, &Value)> for KeyValue {
-        fn from(kv: (&Key, &Value)) -> Self {
-            KeyValue {
-                key: kv.0.clone().into(),
-                value: Some(kv.1.clone().into()),
-            }
-        }
-    }
-
-    impl<'a> From<NumberWithKind<'a>> for number_data_point::Value {
-        fn from(number: NumberWithKind<'a>) -> Self {
-            match &number.1 {
-                NumberKind::I64 | NumberKind::U64 => {
-                    number_data_point::Value::AsInt(number.0.to_i64(number.1))
-                }
-                NumberKind::F64 => number_data_point::Value::AsDouble(number.0.to_f64(number.1)),
-            }
-        }
-    }
-
-    impl From<ExportKind> for AggregationTemporality {
-        fn from(kind: ExportKind) -> Self {
-            match kind {
-                ExportKind::Cumulative => AggregationTemporality::Cumulative,
-                ExportKind::Delta => AggregationTemporality::Delta,
-            }
-        }
-    }
 
     pub(crate) fn record_to_metric(
         record: &Record,
-        export_selector: &dyn ExportKindFor,
+        temporality_selector: &dyn TemporalitySelector,
     ) -> Result<Metric, MetricsError> {
         let descriptor = record.descriptor();
         let aggregator = record.aggregator().ok_or(MetricsError::NoDataCollected)?;
@@ -72,47 +43,26 @@ pub(crate) mod tonic {
             .iter()
             .map(|kv| kv.into())
             .collect::<Vec<KeyValue>>();
-        let temporality: AggregationTemporality =
-            export_selector.export_kind_for(descriptor).into();
+        let temporality: AggregationTemporality = temporality_selector
+            .temporality_for(descriptor, aggregator.aggregation().kind())
+            .into();
         let kind = descriptor.number_kind();
         Ok(Metric {
             name: descriptor.name().to_string(),
-            description: descriptor
-                .description()
-                .cloned()
-                .unwrap_or_else(|| "".to_string()),
+            description: descriptor.description().cloned().unwrap_or_default(),
             unit: descriptor.unit().unwrap_or("").to_string(),
             data: {
-                if let Some(array) = aggregator.as_any().downcast_ref::<ArrayAggregator>() {
-                    if let Ok(points) = array.points() {
-                        Some(Data::Gauge(Gauge {
-                            data_points: points
-                                .into_iter()
-                                .map(|val| NumberDataPoint {
-                                    attributes: attributes.clone(),
-                                    labels: vec![],
-                                    start_time_unix_nano: to_nanos(*record.start_time()),
-                                    time_unix_nano: to_nanos(*record.end_time()),
-                                    value: Some((val, kind).into()),
-                                    exemplars: Vec::default(),
-                                })
-                                .collect(),
-                        }))
-                    } else {
-                        None
-                    }
-                } else if let Some(last_value) =
-                    aggregator.as_any().downcast_ref::<LastValueAggregator>()
+                if let Some(last_value) = aggregator.as_any().downcast_ref::<LastValueAggregator>()
                 {
                     Some({
                         let (val, sample_time) = last_value.last_value()?;
                         Data::Gauge(Gauge {
                             data_points: vec![NumberDataPoint {
+                                flags: DataPointFlags::FlagNone as u32,
                                 attributes,
-                                labels: vec![],
                                 start_time_unix_nano: to_nanos(*record.start_time()),
                                 time_unix_nano: to_nanos(sample_time),
-                                value: Some((val, kind).into()),
+                                value: Some(number_data_point::Value::from_number(val, kind)),
                                 exemplars: Vec::default(),
                             }],
                         })
@@ -122,11 +72,11 @@ pub(crate) mod tonic {
                         let val = sum.sum()?;
                         Data::Sum(Sum {
                             data_points: vec![NumberDataPoint {
+                                flags: DataPointFlags::FlagNone as u32,
                                 attributes,
-                                labels: vec![],
                                 start_time_unix_nano: to_nanos(*record.start_time()),
                                 time_unix_nano: to_nanos(*record.end_time()),
-                                value: Some((val, kind).into()),
+                                value: Some(number_data_point::Value::from_number(val, kind)),
                                 exemplars: Vec::default(),
                             }],
                             aggregation_temporality: temporality as i32,
@@ -141,8 +91,8 @@ pub(crate) mod tonic {
                             (histogram.sum()?, histogram.count()?, histogram.histogram()?);
                         Data::Histogram(Histogram {
                             data_points: vec![HistogramDataPoint {
+                                flags: DataPointFlags::FlagNone as u32,
                                 attributes,
-                                labels: vec![],
                                 start_time_unix_nano: to_nanos(*record.start_time()),
                                 time_unix_nano: to_nanos(*record.end_time()),
                                 count,
@@ -154,34 +104,6 @@ pub(crate) mod tonic {
                                     .map(|c| c as u64)
                                     .collect(),
                                 explicit_bounds: buckets.boundaries().clone(),
-                                exemplars: Vec::default(),
-                            }],
-                            aggregation_temporality: temporality as i32,
-                        })
-                    })
-                } else if let Some(min_max_sum_count) = aggregator
-                    .as_any()
-                    .downcast_ref::<MinMaxSumCountAggregator>()
-                {
-                    Some({
-                        let (min, max, sum, count) = (
-                            min_max_sum_count.min()?,
-                            min_max_sum_count.max()?,
-                            min_max_sum_count.sum()?,
-                            min_max_sum_count.count()?,
-                        );
-                        let buckets = vec![min.to_u64(kind), max.to_u64(kind)];
-                        let bounds = vec![0.0, 100.0];
-                        Data::Histogram(Histogram {
-                            data_points: vec![HistogramDataPoint {
-                                attributes,
-                                labels: vec![],
-                                start_time_unix_nano: to_nanos(*record.start_time()),
-                                time_unix_nano: to_nanos(*record.end_time()),
-                                count,
-                                sum: sum.to_f64(kind),
-                                bucket_counts: buckets,
-                                explicit_bounds: bounds,
                                 exemplars: Vec::default(),
                             }],
                             aggregation_temporality: temporality as i32,
@@ -242,11 +164,20 @@ pub(crate) mod tonic {
             resource_metrics: sink_map
                 .into_iter()
                 .map(|(resource, metric_map)| ResourceMetrics {
+                    schema_url: resource
+                        .schema_url()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default(),
                     resource: Some(resource.into()),
                     instrumentation_library_metrics: metric_map
                         .into_iter()
                         .map(
                             |(instrumentation_library, metrics)| InstrumentationLibraryMetrics {
+                                schema_url: instrumentation_library
+                                    .schema_url
+                                    .clone()
+                                    .unwrap_or_default()
+                                    .to_string(),
                                 instrumentation_library: Some(instrumentation_library.into()),
                                 metrics: metrics
                                     .into_iter()
@@ -304,44 +235,46 @@ pub(crate) mod tonic {
 #[cfg(test)]
 #[allow(deprecated)]
 mod tests {
-    #[cfg(feature = "tonic")]
+    #[cfg(feature = "grpc-tonic")]
     mod tonic {
-        use crate::proto::common::v1::{any_value, AnyValue, KeyValue};
-        use crate::proto::metrics::v1::{
-            metric::Data, number_data_point, Gauge, Histogram, HistogramDataPoint,
-            InstrumentationLibraryMetrics, Metric, NumberDataPoint, ResourceMetrics, Sum,
-        };
-        use crate::transform::common::tonic::Attributes;
         use crate::transform::metrics::tonic::merge;
         use crate::transform::{record_to_metric, sink, ResourceWrapper};
         use opentelemetry::attributes::AttributeSet;
-        use opentelemetry::metrics::{
-            Descriptor, InstrumentKind, MetricsError, Number, NumberKind,
-        };
-        use opentelemetry::sdk::export::metrics::{record, Aggregator, ExportKindSelector};
+        use opentelemetry::metrics::MetricsError;
+        use opentelemetry::sdk::export::metrics::aggregation::cumulative_temporality_selector;
+        use opentelemetry::sdk::export::metrics::record;
         use opentelemetry::sdk::metrics::aggregators::{
-            histogram, last_value, min_max_sum_count, SumAggregator,
+            histogram, last_value, Aggregator, SumAggregator,
+        };
+        use opentelemetry::sdk::metrics::sdk_api::{
+            Descriptor, InstrumentKind, Number, NumberKind,
         };
         use opentelemetry::sdk::{InstrumentationLibrary, Resource};
+        use opentelemetry::Context;
+        use opentelemetry_proto::tonic::metrics::v1::DataPointFlags;
+        use opentelemetry_proto::tonic::{
+            common::v1::{any_value, AnyValue, KeyValue},
+            metrics::v1::{
+                metric::Data, number_data_point, Gauge, Histogram, HistogramDataPoint,
+                InstrumentationLibraryMetrics, Metric, NumberDataPoint, ResourceMetrics, Sum,
+            },
+            Attributes, FromNumber,
+        };
         use std::cmp::Ordering;
         use std::sync::Arc;
         use time::macros::datetime;
 
-        impl From<(&str, &str)> for KeyValue {
-            fn from(kv: (&str, &str)) -> Self {
-                KeyValue {
-                    key: kv.0.to_string(),
-                    value: Some(AnyValue {
-                        value: Some(any_value::Value::StringValue(kv.1.to_string())),
-                    }),
-                }
+        fn key_value(key: &str, value: &str) -> KeyValue {
+            KeyValue {
+                key: key.to_string(),
+                value: Some(AnyValue {
+                    value: Some(any_value::Value::StringValue(value.to_string())),
+                }),
             }
         }
 
-        impl From<i64> for number_data_point::Value {
-            fn from(val: i64) -> Self {
-                number_data_point::Value::AsInt(val)
-            }
+        fn i64_to_value(val: i64) -> number_data_point::Value {
+            number_data_point::Value::AsInt(val)
         }
 
         #[allow(clippy::type_complexity)]
@@ -371,14 +304,17 @@ mod tests {
             value: i64,
         ) -> NumberDataPoint {
             NumberDataPoint {
+                flags: DataPointFlags::FlagNone as u32,
                 attributes: attributes
                     .into_iter()
-                    .map(Into::into)
+                    .map(|(key, value)| key_value(key, value))
                     .collect::<Vec<KeyValue>>(),
-                labels: vec![],
                 start_time_unix_nano: start_time,
                 time_unix_nano: end_time,
-                value: Some((Number::from(value), &NumberKind::I64).into()),
+                value: Some(number_data_point::Value::from_number(
+                    value.into(),
+                    &NumberKind::I64,
+                )),
                 exemplars: vec![],
             }
         }
@@ -390,7 +326,7 @@ mod tests {
 
         fn convert_to_resource_metrics(
             data: (ResourceKv, Vec<(InstrumentationLibraryKv, Vec<MetricRaw>)>),
-        ) -> crate::proto::metrics::v1::ResourceMetrics {
+        ) -> opentelemetry_proto::tonic::metrics::v1::ResourceMetrics {
             // convert to proto resource
             let attributes: Attributes = data
                 .0
@@ -398,7 +334,7 @@ mod tests {
                 .map(|(k, v)| opentelemetry::KeyValue::new(k.to_string(), v.to_string()))
                 .collect::<Vec<opentelemetry::KeyValue>>()
                 .into();
-            let resource = crate::proto::resource::v1::Resource {
+            let resource = opentelemetry_proto::tonic::resource::v1::Resource {
                 attributes: attributes.0,
                 dropped_attributes_count: 0,
             };
@@ -406,11 +342,12 @@ mod tests {
             for ((instrumentation_name, instrumentation_version), metrics) in data.1 {
                 instrumentation_library_metrics.push(InstrumentationLibraryMetrics {
                     instrumentation_library: Some(
-                        crate::proto::common::v1::InstrumentationLibrary {
+                        opentelemetry_proto::tonic::common::v1::InstrumentationLibrary {
                             name: instrumentation_name.to_string(),
                             version: instrumentation_version.unwrap_or("").to_string(),
                         },
                     ),
+                    schema_url: "".to_string(),
                     metrics: metrics
                         .into_iter()
                         .map(|(name, data_points)| get_metric_with_name(name, data_points))
@@ -419,6 +356,7 @@ mod tests {
             }
             ResourceMetrics {
                 resource: Some(resource),
+                schema_url: "".to_string(),
                 instrumentation_library_metrics,
             }
         }
@@ -434,7 +372,16 @@ mod tests {
         // If we changed the sink function to process the input in parallel, we will have to sort other vectors
         // like data points in Metrics.
         fn assert_resource_metrics(mut expect: ResourceMetrics, mut actual: ResourceMetrics) {
-            assert_eq!(expect.resource, actual.resource);
+            assert_eq!(
+                expect
+                    .resource
+                    .as_mut()
+                    .map(|r| r.attributes.sort_by_key(|kv| kv.key.to_string())),
+                actual
+                    .resource
+                    .as_mut()
+                    .map(|r| r.attributes.sort_by_key(|kv| kv.key.to_string()))
+            );
             assert_eq!(
                 expect.instrumentation_library_metrics.len(),
                 actual.instrumentation_library_metrics.len()
@@ -484,11 +431,12 @@ mod tests {
 
         #[test]
         fn test_record_to_metric() -> Result<(), MetricsError> {
+            let cx = Context::new();
             let attributes = vec![("test1", "value1"), ("test2", "value2")];
             let str_kv_attributes = attributes
                 .iter()
                 .cloned()
-                .map(Into::into)
+                .map(|(key, value)| key_value(key, value))
                 .collect::<Vec<KeyValue>>();
             let attribute_set = AttributeSet::from_attributes(
                 attributes
@@ -496,10 +444,6 @@ mod tests {
                     .cloned()
                     .map(|(k, v)| opentelemetry::KeyValue::new(k, v)),
             );
-            let resource = Resource::new(vec![
-                opentelemetry::KeyValue::new("process", "rust"),
-                opentelemetry::KeyValue::new("runtime", "sync"),
-            ]);
             let start_time = datetime!(2020-12-25 10:10:0 UTC); // unit nano 1608891000000000000
             let end_time = datetime!(2020-12-25 10:10:30 UTC); // unix nano 1608891030000000000
 
@@ -507,24 +451,23 @@ mod tests {
             {
                 let descriptor = Descriptor::new(
                     "test".to_string(),
-                    "test",
-                    None,
                     InstrumentKind::Counter,
                     NumberKind::I64,
+                    None,
+                    None,
                 );
                 let aggregator = SumAggregator::default();
                 let val = Number::from(12_i64);
-                aggregator.update(&val, &descriptor)?;
+                aggregator.update(&cx, &val, &descriptor)?;
                 let wrapped_aggregator: Arc<dyn Aggregator + Send + Sync> = Arc::new(aggregator);
                 let record = record(
                     &descriptor,
                     &attribute_set,
-                    &resource,
                     Some(&wrapped_aggregator),
                     start_time.into(),
                     end_time.into(),
                 );
-                let metric = record_to_metric(&record, &ExportKindSelector::Cumulative)?;
+                let metric = record_to_metric(&record, &cumulative_temporality_selector())?;
 
                 let expect = Metric {
                     name: "test".to_string(),
@@ -532,11 +475,11 @@ mod tests {
                     unit: "".to_string(),
                     data: Some(Data::Sum(Sum {
                         data_points: vec![NumberDataPoint {
+                            flags: DataPointFlags::FlagNone as u32,
                             attributes: str_kv_attributes.clone(),
-                            labels: vec![],
                             start_time_unix_nano: 1608891000000000000,
                             time_unix_nano: 1608891030000000000,
-                            value: Some(12i64.into()),
+                            value: Some(i64_to_value(12i64)),
                             exemplars: vec![],
                         }],
                         aggregation_temporality: 2,
@@ -551,26 +494,25 @@ mod tests {
             {
                 let descriptor = Descriptor::new(
                     "test".to_string(),
-                    "test",
-                    None,
-                    InstrumentKind::ValueObserver,
+                    InstrumentKind::GaugeObserver,
                     NumberKind::I64,
+                    None,
+                    None,
                 );
                 let aggregator = last_value();
                 let val1 = Number::from(12_i64);
                 let val2 = Number::from(14_i64);
-                aggregator.update(&val1, &descriptor)?;
-                aggregator.update(&val2, &descriptor)?;
+                aggregator.update(&cx, &val1, &descriptor)?;
+                aggregator.update(&cx, &val2, &descriptor)?;
                 let wrapped_aggregator: Arc<dyn Aggregator + Send + Sync> = Arc::new(aggregator);
                 let record = record(
                     &descriptor,
                     &attribute_set,
-                    &resource,
                     Some(&wrapped_aggregator),
                     start_time.into(),
                     end_time.into(),
                 );
-                let metric = record_to_metric(&record, &ExportKindSelector::Cumulative)?;
+                let metric = record_to_metric(&record, &cumulative_temporality_selector())?;
 
                 let expect = Metric {
                     name: "test".to_string(),
@@ -578,8 +520,8 @@ mod tests {
                     unit: "".to_string(),
                     data: Some(Data::Gauge(Gauge {
                         data_points: vec![NumberDataPoint {
+                            flags: DataPointFlags::FlagNone as u32,
                             attributes: str_kv_attributes.clone(),
-                            labels: vec![],
                             start_time_unix_nano: 1608891000000000000,
                             time_unix_nano: if let Data::Gauge(gauge) = metric.data.clone().unwrap()
                             {
@@ -589,57 +531,9 @@ mod tests {
                             } else {
                                 0
                             },
-                            value: Some(14i64.into()),
+                            value: Some(i64_to_value(14i64)),
                             exemplars: vec![],
                         }],
-                    })),
-                };
-
-                assert_eq!(expect, metric);
-            }
-
-            // MinMaxSumCount
-            {
-                let descriptor = Descriptor::new(
-                    "test".to_string(),
-                    "test",
-                    None,
-                    InstrumentKind::UpDownSumObserver,
-                    NumberKind::I64,
-                );
-                let aggregator = min_max_sum_count(&descriptor);
-                let vals = vec![1i64.into(), 2i64.into(), 3i64.into()];
-                for val in vals.iter() {
-                    aggregator.update(val, &descriptor)?;
-                }
-                let wrapped_aggregator: Arc<dyn Aggregator + Send + Sync> = Arc::new(aggregator);
-                let record = record(
-                    &descriptor,
-                    &attribute_set,
-                    &resource,
-                    Some(&wrapped_aggregator),
-                    start_time.into(),
-                    end_time.into(),
-                );
-                let metric = record_to_metric(&record, &ExportKindSelector::Cumulative)?;
-
-                let expect = Metric {
-                    name: "test".to_string(),
-                    description: "".to_string(),
-                    unit: "".to_string(),
-                    data: Some(Data::Histogram(Histogram {
-                        data_points: vec![HistogramDataPoint {
-                            attributes: str_kv_attributes.clone(),
-                            labels: vec![],
-                            start_time_unix_nano: 1608891000000000000,
-                            time_unix_nano: 1608891030000000000,
-                            count: 3,
-                            sum: 6f64,
-                            bucket_counts: vec![1, 3],
-                            explicit_bounds: vec![0.0, 100.0],
-                            exemplars: vec![],
-                        }],
-                        aggregation_temporality: 2,
                     })),
                 };
 
@@ -650,27 +544,26 @@ mod tests {
             {
                 let descriptor = Descriptor::new(
                     "test".to_string(),
-                    "test",
-                    None,
-                    InstrumentKind::ValueRecorder,
+                    InstrumentKind::Histogram,
                     NumberKind::I64,
+                    None,
+                    None,
                 );
                 let bound = [0.1, 0.2, 0.3];
-                let aggregator = histogram(&descriptor, &bound);
+                let aggregator = histogram(&bound);
                 let vals = vec![1i64.into(), 2i64.into(), 3i64.into()];
                 for val in vals.iter() {
-                    aggregator.update(val, &descriptor)?;
+                    aggregator.update(&cx, val, &descriptor)?;
                 }
                 let wrapped_aggregator: Arc<dyn Aggregator + Send + Sync> = Arc::new(aggregator);
                 let record = record(
                     &descriptor,
                     &attribute_set,
-                    &resource,
                     Some(&wrapped_aggregator),
                     start_time.into(),
                     end_time.into(),
                 );
-                let metric = record_to_metric(&record, &ExportKindSelector::Cumulative)?;
+                let metric = record_to_metric(&record, &cumulative_temporality_selector())?;
 
                 let expect = Metric {
                     name: "test".to_string(),
@@ -678,8 +571,8 @@ mod tests {
                     unit: "".to_string(),
                     data: Some(Data::Histogram(Histogram {
                         data_points: vec![HistogramDataPoint {
+                            flags: DataPointFlags::FlagNone as u32,
                             attributes: str_kv_attributes,
-                            labels: vec![],
                             start_time_unix_nano: 1608891000000000000,
                             time_unix_nano: 1608891030000000000,
                             count: 3,
@@ -739,7 +632,7 @@ mod tests {
                         ResourceWrapper::from(Resource::new(kvs.into_iter().map(|(k, v)| {
                             opentelemetry::KeyValue::new(k.to_string(), v.to_string())
                         }))),
-                        InstrumentationLibrary::new(name, version),
+                        InstrumentationLibrary::new(name, version, None),
                         get_metric_with_name(
                             metric_name,
                             vec![(attributes, start_time, end_time, value)],

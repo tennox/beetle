@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.57"
 name = "ssh-key"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["RustCrypto Developers"]
 description = """
 Pure Rust implementation of SSH key file format decoders/encoders as described
@@ -38,8 +38,7 @@ categories = [
     "parser-implementations",
 ]
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/RustCrypto/formats/tree/master/ssh-key"
-resolver = "2"
+repository = "https://github.com/RustCrypto/SSH/tree/master/ssh-key"
 
 [package.metadata.docs.rs]
 all-features = true

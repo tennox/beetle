@@ -66,7 +66,7 @@ impl<T: ContentLoader + std::marker::Unpin> http_body::Body for PrettyStreamBody
     }
 }
 
-impl<T: ContentLoader + Clone + std::marker::Unpin> Client<T> {
+impl<T: ContentLoader + std::marker::Unpin> Client<T> {
     pub fn new(rpc_client: &T) -> Self {
         Self {
             resolver: Resolver::new(rpc_client.clone()),

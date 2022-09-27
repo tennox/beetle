@@ -101,7 +101,7 @@ dual licensed as above, without any additional terms or conditions.
 
 [//]: # (badges)
 
-[crate-image]: https://img.shields.io/crates/v/ssh-key.svg
+[crate-image]: https://buildstats.info/crate/ssh-key
 [crate-link]: https://crates.io/crates/ssh-key
 [docs-image]: https://docs.rs/ssh-key/badge.svg
 [docs-link]: https://docs.rs/ssh-key/
@@ -109,8 +109,8 @@ dual licensed as above, without any additional terms or conditions.
 [rustc-image]: https://img.shields.io/badge/rustc-1.57+-blue.svg
 [chat-image]: https://img.shields.io/badge/zulip-join_chat-blue.svg
 [chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/300570-formats
-[build-image]: https://github.com/RustCrypto/formats/actions/workflows/ssh-key.yml/badge.svg
-[build-link]: https://github.com/RustCrypto/formats/actions/workflows/ssh-key.yml
+[build-image]: https://github.com/RustCrypto/SSH/actions/workflows/ssh-key.yml/badge.svg
+[build-link]: https://github.com/RustCrypto/SSH/actions/workflows/ssh-key.yml
 
 [//]: # (links)
 

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0]
+
+### Changed
+- Add `IfWatcher::poll_if_event`. Implement `Stream` instead of `Future` for `IfWatcher`.
+  See [PR 23] and [PR 25].
+- Make `IfWatcher::new` synchronous. See [PR 24].
+
+[PR 23]: https://github.com/mxinden/if-watch/pull/23
+[PR 24]: https://github.com/mxinden/if-watch/pull/24
+[PR 25]: https://github.com/mxinden/if-watch/pull/25
+
 ## [1.1.1]
 
 ### Fixed

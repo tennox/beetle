@@ -1,7 +1,10 @@
 use std::io;
 
 use crate::{
-    event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    event::{
+        Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MediaKeyCode,
+        ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+    },
     ErrorKind, Result,
 };
 
@@ -157,12 +160,16 @@ pub(crate) fn parse_csi(buffer: &[u8]) -> Result<Option<InternalEvent>> {
         b'B' => Some(Event::Key(KeyCode::Down.into())),
         b'H' => Some(Event::Key(KeyCode::Home.into())),
         b'F' => Some(Event::Key(KeyCode::End.into())),
-        b'Z' => Some(Event::Key(KeyEvent {
-            code: KeyCode::BackTab,
-            modifiers: KeyModifiers::SHIFT,
-        })),
+        b'Z' => Some(Event::Key(KeyEvent::new_with_kind(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT,
+            KeyEventKind::Press,
+        ))),
         b'M' => return parse_csi_normal_mouse(buffer),
         b'<' => return parse_csi_sgr_mouse(buffer),
+        b'I' => Some(Event::FocusGained),
+        b'O' => Some(Event::FocusLost),
+        b';' => return parse_csi_modifier_key_code(buffer),
         b'0'..=b'9' => {
             // Numbered escape code.
             if buffer.len() == 3 {
@@ -170,11 +177,15 @@ pub(crate) fn parse_csi(buffer: &[u8]) -> Result<Option<InternalEvent>> {
             } else {
                 // The final byte of a CSI sequence can be in the range 64-126, so
                 // let's keep reading anything else.
-                let last_byte = *buffer.last().unwrap();
+                let last_byte = buffer[buffer.len() - 1];
                 if !(64..=126).contains(&last_byte) {
                     None
                 } else {
-                    match buffer[buffer.len() - 1] {
+                    #[cfg(feature = "bracketed-paste")]
+                    if buffer.starts_with(b"\x1B[200~") {
+                        return parse_csi_bracketed_paste(buffer);
+                    }
+                    match last_byte {
                         b'M' => return parse_csi_rxvt_mouse(buffer),
                         b'~' => return parse_csi_special_key_code(buffer),
                         b'u' => return parse_csi_u_encoded_key_code(buffer),
@@ -198,6 +209,21 @@ where
         .ok_or_else(could_not_parse_event_error)?
         .parse::<T>()
         .map_err(|_| could_not_parse_event_error())
+}
+
+fn modifier_and_kind_parsed(iter: &mut dyn Iterator<Item = &str>) -> Result<(u8, u8)> {
+    let mut sub_split = iter
+        .next()
+        .ok_or_else(could_not_parse_event_error)?
+        .split(':');
+
+    let modifier_mask = next_parsed::<u8>(&mut sub_split)?;
+
+    if let Ok(kind_code) = next_parsed::<u8>(&mut sub_split) {
+        Ok((modifier_mask, kind_code))
+    } else {
+        Ok((modifier_mask, 1))
+    }
 }
 
 pub(crate) fn parse_csi_cursor_position(buffer: &[u8]) -> Result<Option<InternalEvent>> {
@@ -230,16 +256,67 @@ fn parse_modifiers(mask: u8) -> KeyModifiers {
     if modifier_mask & 4 != 0 {
         modifiers |= KeyModifiers::CONTROL;
     }
+    if modifier_mask & 8 != 0 {
+        modifiers |= KeyModifiers::SUPER;
+    }
+    if modifier_mask & 16 != 0 {
+        modifiers |= KeyModifiers::HYPER;
+    }
+    if modifier_mask & 32 != 0 {
+        modifiers |= KeyModifiers::META;
+    }
     modifiers
+}
+
+fn parse_modifiers_to_state(mask: u8) -> KeyEventState {
+    let modifier_mask = mask.saturating_sub(1);
+    let mut state = KeyEventState::empty();
+    if modifier_mask & 64 != 0 {
+        state |= KeyEventState::CAPS_LOCK;
+    }
+    if modifier_mask & 128 != 0 {
+        state |= KeyEventState::NUM_LOCK;
+    }
+    state
+}
+
+fn parse_key_event_kind(kind: u8) -> KeyEventKind {
+    match kind {
+        1 => KeyEventKind::Press,
+        2 => KeyEventKind::Repeat,
+        3 => KeyEventKind::Release,
+        _ => KeyEventKind::Press,
+    }
 }
 
 pub(crate) fn parse_csi_modifier_key_code(buffer: &[u8]) -> Result<Option<InternalEvent>> {
     assert!(buffer.starts_with(&[b'\x1B', b'['])); // ESC [
+                                                   //
+    let s = std::str::from_utf8(&buffer[2..buffer.len() - 1])
+        .map_err(|_| could_not_parse_event_error())?;
+    let mut split = s.split(';');
 
-    let modifier_mask = buffer[buffer.len() - 2];
+    split.next();
+
+    let (modifiers, kind) =
+        if let Ok((modifier_mask, kind_code)) = modifier_and_kind_parsed(&mut split) {
+            (
+                parse_modifiers(modifier_mask),
+                parse_key_event_kind(kind_code),
+            )
+        } else if buffer.len() > 3 {
+            (
+                parse_modifiers(
+                    (buffer[buffer.len() - 2] as char)
+                        .to_digit(10)
+                        .ok_or_else(could_not_parse_event_error)? as u8,
+                ),
+                KeyEventKind::Press,
+            )
+        } else {
+            (KeyModifiers::NONE, KeyEventKind::Press)
+        };
     let key = buffer[buffer.len() - 1];
-
-    let modifiers = parse_modifiers(modifier_mask);
 
     let keycode = match key {
         b'A' => KeyCode::Up,
@@ -255,9 +332,110 @@ pub(crate) fn parse_csi_modifier_key_code(buffer: &[u8]) -> Result<Option<Intern
         _ => return Err(could_not_parse_event_error()),
     };
 
-    let input_event = Event::Key(KeyEvent::new(keycode, modifiers));
+    let input_event = Event::Key(KeyEvent::new_with_kind(keycode, modifiers, kind));
 
     Ok(Some(InternalEvent::Event(input_event)))
+}
+
+fn translate_functional_key_code(codepoint: u32) -> Option<(KeyCode, KeyEventState)> {
+    if let Some(keycode) = match codepoint {
+        57399 => Some(KeyCode::Char('0')),
+        57400 => Some(KeyCode::Char('1')),
+        57401 => Some(KeyCode::Char('2')),
+        57402 => Some(KeyCode::Char('3')),
+        57403 => Some(KeyCode::Char('4')),
+        57404 => Some(KeyCode::Char('5')),
+        57405 => Some(KeyCode::Char('6')),
+        57406 => Some(KeyCode::Char('7')),
+        57407 => Some(KeyCode::Char('8')),
+        57408 => Some(KeyCode::Char('9')),
+        57409 => Some(KeyCode::Char('.')),
+        57410 => Some(KeyCode::Char('/')),
+        57411 => Some(KeyCode::Char('*')),
+        57412 => Some(KeyCode::Char('-')),
+        57413 => Some(KeyCode::Char('+')),
+        57414 => Some(KeyCode::Enter),
+        57415 => Some(KeyCode::Char('=')),
+        57416 => Some(KeyCode::Char(',')),
+        57417 => Some(KeyCode::Left),
+        57418 => Some(KeyCode::Right),
+        57419 => Some(KeyCode::Up),
+        57420 => Some(KeyCode::Down),
+        57421 => Some(KeyCode::PageUp),
+        57422 => Some(KeyCode::PageDown),
+        57423 => Some(KeyCode::Home),
+        57424 => Some(KeyCode::End),
+        57425 => Some(KeyCode::Insert),
+        57426 => Some(KeyCode::Delete),
+        57427 => Some(KeyCode::KeypadBegin),
+        _ => None,
+    } {
+        return Some((keycode, KeyEventState::KEYPAD));
+    }
+
+    if let Some(keycode) = match codepoint {
+        57358 => Some(KeyCode::CapsLock),
+        57359 => Some(KeyCode::ScrollLock),
+        57360 => Some(KeyCode::NumLock),
+        57361 => Some(KeyCode::PrintScreen),
+        57362 => Some(KeyCode::Pause),
+        57363 => Some(KeyCode::Menu),
+        57376 => Some(KeyCode::F(13)),
+        57377 => Some(KeyCode::F(14)),
+        57378 => Some(KeyCode::F(15)),
+        57379 => Some(KeyCode::F(16)),
+        57380 => Some(KeyCode::F(17)),
+        57381 => Some(KeyCode::F(18)),
+        57382 => Some(KeyCode::F(19)),
+        57383 => Some(KeyCode::F(20)),
+        57384 => Some(KeyCode::F(21)),
+        57385 => Some(KeyCode::F(22)),
+        57386 => Some(KeyCode::F(23)),
+        57387 => Some(KeyCode::F(24)),
+        57388 => Some(KeyCode::F(25)),
+        57389 => Some(KeyCode::F(26)),
+        57390 => Some(KeyCode::F(27)),
+        57391 => Some(KeyCode::F(28)),
+        57392 => Some(KeyCode::F(29)),
+        57393 => Some(KeyCode::F(30)),
+        57394 => Some(KeyCode::F(31)),
+        57395 => Some(KeyCode::F(32)),
+        57396 => Some(KeyCode::F(33)),
+        57397 => Some(KeyCode::F(34)),
+        57398 => Some(KeyCode::F(35)),
+        57428 => Some(KeyCode::Media(MediaKeyCode::Play)),
+        57429 => Some(KeyCode::Media(MediaKeyCode::Pause)),
+        57430 => Some(KeyCode::Media(MediaKeyCode::PlayPause)),
+        57431 => Some(KeyCode::Media(MediaKeyCode::Reverse)),
+        57432 => Some(KeyCode::Media(MediaKeyCode::Stop)),
+        57433 => Some(KeyCode::Media(MediaKeyCode::FastForward)),
+        57434 => Some(KeyCode::Media(MediaKeyCode::Rewind)),
+        57435 => Some(KeyCode::Media(MediaKeyCode::TrackNext)),
+        57436 => Some(KeyCode::Media(MediaKeyCode::TrackPrevious)),
+        57437 => Some(KeyCode::Media(MediaKeyCode::Record)),
+        57438 => Some(KeyCode::Media(MediaKeyCode::LowerVolume)),
+        57439 => Some(KeyCode::Media(MediaKeyCode::RaiseVolume)),
+        57440 => Some(KeyCode::Media(MediaKeyCode::MuteVolume)),
+        57441 => Some(KeyCode::Modifier(ModifierKeyCode::LeftShift)),
+        57442 => Some(KeyCode::Modifier(ModifierKeyCode::LeftControl)),
+        57443 => Some(KeyCode::Modifier(ModifierKeyCode::LeftAlt)),
+        57444 => Some(KeyCode::Modifier(ModifierKeyCode::LeftSuper)),
+        57445 => Some(KeyCode::Modifier(ModifierKeyCode::LeftHyper)),
+        57446 => Some(KeyCode::Modifier(ModifierKeyCode::LeftMeta)),
+        57447 => Some(KeyCode::Modifier(ModifierKeyCode::RightShift)),
+        57448 => Some(KeyCode::Modifier(ModifierKeyCode::RightControl)),
+        57449 => Some(KeyCode::Modifier(ModifierKeyCode::RightAlt)),
+        57450 => Some(KeyCode::Modifier(ModifierKeyCode::RightSuper)),
+        57451 => Some(KeyCode::Modifier(ModifierKeyCode::RightHyper)),
+        57452 => Some(KeyCode::Modifier(ModifierKeyCode::RightMeta)),
+        57453 => Some(KeyCode::Modifier(ModifierKeyCode::IsoLevel3Shift)),
+        57454 => Some(KeyCode::Modifier(ModifierKeyCode::IsoLevel5Shift)),
+        _ => None,
+    } {
+        return Some((keycode, KeyEventState::empty()));
+    }
+
+    None
 }
 
 pub(crate) fn parse_csi_u_encoded_key_code(buffer: &[u8]) -> Result<Option<InternalEvent>> {
@@ -273,38 +451,77 @@ pub(crate) fn parse_csi_u_encoded_key_code(buffer: &[u8]) -> Result<Option<Inter
     // codepoint: ASCII Dec value
     let codepoint = next_parsed::<u32>(&mut split)?;
 
-    let modifiers = if let Ok(modifier_mask) = next_parsed::<u8>(&mut split) {
-        parse_modifiers(modifier_mask)
-    } else {
-        KeyModifiers::NONE
-    };
+    let (mut modifiers, kind, state_from_modifiers) =
+        if let Ok((modifier_mask, kind_code)) = modifier_and_kind_parsed(&mut split) {
+            (
+                parse_modifiers(modifier_mask),
+                parse_key_event_kind(kind_code),
+                parse_modifiers_to_state(modifier_mask),
+            )
+        } else {
+            (KeyModifiers::NONE, KeyEventKind::Press, KeyEventState::NONE)
+        };
 
-    let keycode = {
-        if let Some(c) = char::from_u32(codepoint) {
-            match c {
-                '\x1B' => KeyCode::Esc,
-                '\r' => KeyCode::Enter,
-                // Issue #371: \n = 0xA, which is also the keycode for Ctrl+J. The only reason we get
-                // newlines as input is because the terminal converts \r into \n for us. When we
-                // enter raw mode, we disable that, so \n no longer has any meaning - it's better to
-                // use Ctrl+J. Waiting to handle it here means it gets picked up later
-                '\n' if !crate::terminal::sys::is_raw_mode_enabled() => KeyCode::Enter,
-                '\t' => {
-                    if modifiers.contains(KeyModifiers::SHIFT) {
-                        KeyCode::BackTab
-                    } else {
-                        KeyCode::Tab
+    let (keycode, state_from_keycode) = {
+        if let Some((special_key_code, state)) = translate_functional_key_code(codepoint) {
+            (special_key_code, state)
+        } else if let Some(c) = char::from_u32(codepoint) {
+            (
+                match c {
+                    '\x1B' => KeyCode::Esc,
+                    '\r' => KeyCode::Enter,
+                    // Issue #371: \n = 0xA, which is also the keycode for Ctrl+J. The only reason we get
+                    // newlines as input is because the terminal converts \r into \n for us. When we
+                    // enter raw mode, we disable that, so \n no longer has any meaning - it's better to
+                    // use Ctrl+J. Waiting to handle it here means it gets picked up later
+                    '\n' if !crate::terminal::sys::is_raw_mode_enabled() => KeyCode::Enter,
+                    '\t' => {
+                        if modifiers.contains(KeyModifiers::SHIFT) {
+                            KeyCode::BackTab
+                        } else {
+                            KeyCode::Tab
+                        }
                     }
-                }
-                '\x7F' => KeyCode::Backspace,
-                _ => KeyCode::Char(c),
-            }
+                    '\x7F' => KeyCode::Backspace,
+                    _ => KeyCode::Char(c),
+                },
+                KeyEventState::empty(),
+            )
         } else {
             return Err(could_not_parse_event_error());
         }
     };
 
-    let input_event = Event::Key(KeyEvent::new(keycode, modifiers));
+    if let KeyCode::Modifier(modifier_keycode) = keycode {
+        match modifier_keycode {
+            ModifierKeyCode::LeftAlt | ModifierKeyCode::RightAlt => {
+                modifiers.set(KeyModifiers::ALT, true)
+            }
+            ModifierKeyCode::LeftControl | ModifierKeyCode::RightControl => {
+                modifiers.set(KeyModifiers::CONTROL, true)
+            }
+            ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift => {
+                modifiers.set(KeyModifiers::SHIFT, true)
+            }
+            ModifierKeyCode::LeftSuper | ModifierKeyCode::RightSuper => {
+                modifiers.set(KeyModifiers::SUPER, true)
+            }
+            ModifierKeyCode::LeftHyper | ModifierKeyCode::RightHyper => {
+                modifiers.set(KeyModifiers::HYPER, true)
+            }
+            ModifierKeyCode::LeftMeta | ModifierKeyCode::RightMeta => {
+                modifiers.set(KeyModifiers::META, true)
+            }
+            _ => {}
+        }
+    }
+
+    let input_event = Event::Key(KeyEvent::new_with_kind_and_state(
+        keycode,
+        modifiers,
+        kind,
+        state_from_keycode | state_from_modifiers,
+    ));
 
     Ok(Some(InternalEvent::Event(input_event)))
 }
@@ -493,6 +710,19 @@ fn parse_cb(cb: u8) -> Result<(MouseEventKind, KeyModifiers)> {
     Ok((kind, modifiers))
 }
 
+#[cfg(feature = "bracketed-paste")]
+pub(crate) fn parse_csi_bracketed_paste(buffer: &[u8]) -> Result<Option<InternalEvent>> {
+    // ESC [ 2 0 0 ~ pasted text ESC 2 0 1 ~
+    assert!(buffer.starts_with(b"\x1B[200~"));
+
+    if !buffer.ends_with(b"\x1b[201~") {
+        Ok(None)
+    } else {
+        let paste = String::from_utf8_lossy(&buffer[6..buffer.len() - 6]).to_string();
+        Ok(Some(InternalEvent::Event(Event::Paste(paste))))
+    }
+}
+
 pub(crate) fn parse_utf8_char(buffer: &[u8]) -> Result<Option<char>> {
     match std::str::from_utf8(buffer) {
         Ok(s) => {
@@ -534,7 +764,7 @@ pub(crate) fn parse_utf8_char(buffer: &[u8]) -> Result<Option<char>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::event::{KeyModifiers, MouseButton, MouseEvent};
+    use crate::event::{KeyEventState, KeyModifiers, MouseButton, MouseEvent};
 
     use super::*;
 
@@ -614,6 +844,15 @@ mod tests {
         assert_eq!(
             parse_event(b"\x1B[3~", false).unwrap(),
             Some(InternalEvent::Event(Event::Key(KeyCode::Delete.into()))),
+        );
+
+        // parse_csi_bracketed_paste
+        #[cfg(feature = "bracketed-paste")]
+        assert_eq!(
+            parse_event(b"\x1B[200~on and on and on\x1B[201~", false).unwrap(),
+            Some(InternalEvent::Event(Event::Paste(
+                "on and on and on".to_string()
+            ))),
         );
 
         // parse_csi_rxvt_mouse
@@ -710,6 +949,34 @@ mod tests {
                 KeyCode::Delete,
                 KeyModifiers::SHIFT
             )))),
+        );
+    }
+
+    #[cfg(feature = "bracketed-paste")]
+    #[test]
+    fn test_parse_csi_bracketed_paste() {
+        //
+        assert_eq!(
+            parse_event(b"\x1B[200~o", false).unwrap(),
+            None,
+            "A partial bracketed paste isn't parsed"
+        );
+        assert_eq!(
+            parse_event(b"\x1B[200~o\x1B[2D", false).unwrap(),
+            None,
+            "A partial bracketed paste containing another escape code isn't parsed"
+        );
+        assert_eq!(
+            parse_event(b"\x1B[200~o\x1B[2D\x1B[201~", false).unwrap(),
+            Some(InternalEvent::Event(Event::Paste("o\x1B[2D".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_csi_focus() {
+        assert_eq!(
+            parse_csi(b"\x1B[O").unwrap(),
+            Some(InternalEvent::Event(Event::FocusLost))
         );
     }
 
@@ -841,6 +1108,259 @@ mod tests {
             Some(InternalEvent::Event(Event::Key(KeyEvent::new(
                 KeyCode::Char('C'),
                 KeyModifiers::SHIFT
+            )))),
+        );
+    }
+
+    #[test]
+    fn test_parse_basic_csi_u_encoded_key_code() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::empty()
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;2u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Char('A'),
+                KeyModifiers::SHIFT
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;7u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::ALT | KeyModifiers::CONTROL
+            )))),
+        );
+    }
+
+    #[test]
+    fn test_parse_basic_csi_u_encoded_key_code_special_keys() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[13u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::empty()
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[27u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::empty()
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57358u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::CapsLock,
+                KeyModifiers::empty()
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57376u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::F(13),
+                KeyModifiers::empty()
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57428u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Media(MediaKeyCode::Play),
+                KeyModifiers::empty()
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57441u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Modifier(ModifierKeyCode::LeftShift),
+                KeyModifiers::SHIFT,
+            )))),
+        );
+    }
+
+    #[test]
+    fn test_parse_csi_u_encoded_keypad_code() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57399u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(
+                KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('0'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                    KeyEventState::KEYPAD,
+                )
+            ))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57419u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(
+                KeyEvent::new_with_kind_and_state(
+                    KeyCode::Up,
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                    KeyEventState::KEYPAD,
+                )
+            ))),
+        );
+    }
+
+    #[test]
+    fn test_parse_csi_u_encoded_key_code_with_types() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;1u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char('a'),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;1:1u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char('a'),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;5:1u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char('a'),
+                KeyModifiers::CONTROL,
+                KeyEventKind::Press,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;1:2u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char('a'),
+                KeyModifiers::empty(),
+                KeyEventKind::Repeat,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;1:3u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char('a'),
+                KeyModifiers::empty(),
+                KeyEventKind::Release,
+            )))),
+        );
+    }
+
+    #[test]
+    fn test_parse_csi_u_encoded_key_code_has_modifier_on_modifier_press() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57449u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Modifier(ModifierKeyCode::RightAlt),
+                KeyModifiers::ALT,
+                KeyEventKind::Press,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57449;3:3u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Modifier(ModifierKeyCode::RightAlt),
+                KeyModifiers::ALT,
+                KeyEventKind::Release,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57450u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Modifier(ModifierKeyCode::RightSuper),
+                KeyModifiers::SUPER,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57451u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Modifier(ModifierKeyCode::RightHyper),
+                KeyModifiers::HYPER,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[57452u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Modifier(ModifierKeyCode::RightMeta),
+                KeyModifiers::META,
+            )))),
+        );
+    }
+
+    #[test]
+    fn test_parse_csi_u_encoded_key_code_with_extra_modifiers() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;9u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::SUPER
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;17u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::HYPER,
+            )))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;33u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::META,
+            )))),
+        );
+    }
+
+    #[test]
+    fn test_parse_csi_u_encoded_key_code_with_extra_state() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;65u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(
+                KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('a'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                    KeyEventState::CAPS_LOCK,
+                )
+            ))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[49;129u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(
+                KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('1'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                    KeyEventState::NUM_LOCK,
+                )
+            ))),
+        );
+    }
+
+    #[test]
+    fn test_parse_csi_special_key_code_with_types() {
+        assert_eq!(
+            parse_event(b"\x1B[;1:3B", false).unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Release,
+            )))),
+        );
+        assert_eq!(
+            parse_event(b"\x1B[1;1:3B", false).unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Release,
             )))),
         );
     }

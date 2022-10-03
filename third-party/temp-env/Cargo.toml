@@ -12,12 +12,42 @@
 [package]
 edition = "2018"
 name = "temp-env"
-version = "0.2.0"
-authors = ["Volker Mische <volker.mische@gmail.com>", "Fabian Braun <fabian-braun-os@mailbox.org>"]
+version = "0.3.1"
+authors = [
+    "Volker Mische <volker.mische@gmail.com>",
+    "Fabian Braun <fabian-braun-os@mailbox.org>",
+]
 description = "Set environment variables temporarily."
-keywords = ["env", "environment", "envvar", "temporary", "testing"]
-categories = ["development-tools", "development-tools::testing"]
+readme = "README.md"
+keywords = [
+    "env",
+    "environment",
+    "envvar",
+    "temporary",
+    "testing",
+]
+categories = [
+    "development-tools",
+    "development-tools::testing",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/vmx/temp-env"
+
+[dependencies.futures]
+version = "0.3.21"
+optional = true
+
 [dependencies.once_cell]
 version = "1.8.0"
+
+[dependencies.tokio]
+version = "1.21.1"
+features = ["full"]
+optional = true
+
+[features]
+async_closure = [
+    "dep:tokio",
+    "dep:futures",
+]
+default = []

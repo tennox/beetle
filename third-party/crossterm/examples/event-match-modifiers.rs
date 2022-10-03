@@ -10,24 +10,29 @@ fn match_event(read_event: Event) {
         Event::Key(KeyEvent {
             modifiers: KeyModifiers::CONTROL,
             code,
+            ..
         }) => {
             println!("Control + {:?}", code);
         }
         Event::Key(KeyEvent {
             modifiers: KeyModifiers::SHIFT,
             code,
+            ..
         }) => {
             println!("Shift + {:?}", code);
         }
         Event::Key(KeyEvent {
             modifiers: KeyModifiers::ALT,
             code,
+            ..
         }) => {
             println!("Alt + {:?}", code);
         }
 
         // Match on multiple modifiers:
-        Event::Key(KeyEvent { code, modifiers }) => {
+        Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) => {
             if modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT) {
                 println!("Alt + Shift {:?}", code);
             } else {
@@ -40,24 +45,24 @@ fn match_event(read_event: Event) {
 }
 
 fn main() {
-    match_event(Event::Key(KeyEvent {
-        modifiers: KeyModifiers::CONTROL,
-        code: KeyCode::Char('z'),
-    }));
-    match_event(Event::Key(KeyEvent {
-        modifiers: KeyModifiers::SHIFT,
-        code: KeyCode::Left,
-    }));
-    match_event(Event::Key(KeyEvent {
-        modifiers: KeyModifiers::ALT,
-        code: KeyCode::Delete,
-    }));
-    match_event(Event::Key(KeyEvent {
-        modifiers: KeyModifiers::ALT | KeyModifiers::SHIFT,
-        code: KeyCode::Right,
-    }));
-    match_event(Event::Key(KeyEvent {
-        modifiers: KeyModifiers::ALT | KeyModifiers::CONTROL,
-        code: KeyCode::Home,
-    }));
+    match_event(Event::Key(KeyEvent::new(
+        KeyCode::Char('z'),
+        KeyModifiers::CONTROL,
+    )));
+    match_event(Event::Key(KeyEvent::new(
+        KeyCode::Left,
+        KeyModifiers::SHIFT,
+    )));
+    match_event(Event::Key(KeyEvent::new(
+        KeyCode::Delete,
+        KeyModifiers::ALT,
+    )));
+    match_event(Event::Key(KeyEvent::new(
+        KeyCode::Right,
+        KeyModifiers::ALT | KeyModifiers::SHIFT,
+    )));
+    match_event(Event::Key(KeyEvent::new(
+        KeyCode::Home,
+        KeyModifiers::ALT | KeyModifiers::CONTROL,
+    )));
 }

@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "if-watch"
-version = "1.1.1"
+version = "2.0.0"
 dependencies = [
  "async-io",
  "core-foundation",

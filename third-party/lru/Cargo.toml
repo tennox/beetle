@@ -11,7 +11,7 @@
 
 [package]
 name = "lru"
-version = "0.7.8"
+version = "0.8.1"
 authors = ["Jerome Froelich <jeromefroelic@hotmail.com>"]
 description = "A LRU cache implementation"
 homepage = "https://github.com/jeromefroe/lru-rs"
@@ -20,6 +20,10 @@ readme = "README.md"
 keywords = [
     "LRU",
     "cache",
+]
+categories = [
+    "caching",
+    "no-std",
 ]
 license = "MIT"
 repository = "https://github.com/jeromefroe/lru-rs.git"

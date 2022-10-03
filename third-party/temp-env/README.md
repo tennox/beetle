@@ -8,8 +8,8 @@ This crate is useful for testing with different environment variables that shoul
 This code started as a small test helper written by [@fabian-braun] and [@nbaztec] and published by [@fabian-braun]
 on [StackOverflow]. [@vmx] found it useful and took the time to make it a proper crate.
 
-Example
--------
+Examples
+--------
 
 ```rust
 temp_env::with_var("MY_ENV_VAR", Some("production"), || {
@@ -40,6 +40,19 @@ temp_env::with_vars(
 );
 ```
 
+Starting from version 0.3.0 you can return a value from inside the closure:
+
+```rust
+let r = temp_env::with_var("MY_ENV_VAR", Some("production"), || {
+    let envvar = env::var("MY_ENV_VAR").unwrap();
+    if envvar == "production" {
+        true
+    } else {
+        false
+    }
+});
+```
+
 How does it work?
 -------
 
@@ -53,6 +66,11 @@ The provided functions `temp_env::with_*` provide the following features:
 
 Note that the crate makes use of a singleton mutex to avoid side effects between concurrently running tests.
 This may impact the degree of concurrency in your test execution.
+
+Features
+--------
+
+ - `async_closure`: When enabled you can use `async_with_var()` with async closures. This feature needs at least Rust version 1.64.
 
 License
 -------

@@ -20,7 +20,7 @@ pub struct IfWatcher {
 
 impl IfWatcher {
     /// Create a watcher
-    pub async fn new() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(Self {
             addrs: Default::default(),
             queue: Default::default(),
@@ -48,12 +48,8 @@ impl IfWatcher {
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
-}
 
-impl Future for IfWatcher {
-    type Output = Result<IfEvent>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    pub fn poll_if_event(&mut self, cx: &mut Context) -> Poll<Result<IfEvent>> {
         loop {
             if let Some(event) = self.queue.pop_front() {
                 return Poll::Ready(Ok(event));

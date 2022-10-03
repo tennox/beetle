@@ -34,8 +34,12 @@
 //!     loop {
 //!         // `read()` blocks until an `Event` is available
 //!         match read()? {
+//!             Event::FocusGained => println!("FocusGained"),
+//!             Event::FocusLost => println!("FocusLost"),
 //!             Event::Key(event) => println!("{:?}", event),
 //!             Event::Mouse(event) => println!("{:?}", event),
+//!             #[cfg(feature = "bracketed-paste")]
+//!             Event::Paste(data) => println!("{:?}", data),
 //!             Event::Resize(width, height) => println!("New size {}x{}", width, height),
 //!         }
 //!     }
@@ -57,8 +61,12 @@
 //!             // It's guaranteed that the `read()` won't block when the `poll()`
 //!             // function returns `true`
 //!             match read()? {
+//!                 Event::FocusGained => println!("FocusGained"),
+//!                 Event::FocusLost => println!("FocusLost"),
 //!                 Event::Key(event) => println!("{:?}", event),
 //!                 Event::Mouse(event) => println!("{:?}", event),
+//!                 #[cfg(feature = "bracketed-paste")]
+//!                 Event::Paste(data) => println!("Pasted {:?}", data),
 //!                 Event::Resize(width, height) => println!("New size {}x{}", width, height),
 //!             }
 //!         } else {
@@ -74,6 +82,8 @@
 
 use std::fmt;
 use std::hash::{Hash, Hasher};
+#[cfg(windows)]
+use std::io;
 use std::time::Duration;
 
 use bitflags::bitflags;
@@ -294,14 +304,215 @@ impl Command for DisableMouseCapture {
     }
 }
 
+bitflags! {
+    /// Represents special flags that tell compatible terminals to add extra information to keyboard events.
+    ///
+    /// See <https://sw.kovidgoyal.net/kitty/keyboard-protocol/#progressive-enhancement> for more information.
+    ///
+    /// Alternate keys and Unicode codepoints are not yet supported by crossterm.
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct KeyboardEnhancementFlags: u8 {
+        /// Represent Escape and modified keys using CSI-u sequences, so they can be unambiguously
+        /// read.
+        const DISAMBIGUATE_ESCAPE_CODES = 0b0000_0001;
+        /// Add extra events with [`KeyEvent.kind`] set to [`KeyEventKind::Repeat`] or
+        /// [`KeyEventKind::Release`] when keys are autorepeated or released.
+        const REPORT_EVENT_TYPES = 0b0000_0010;
+        // Send [alternate keycodes](https://sw.kovidgoyal.net/kitty/keyboard-protocol/#key-codes)
+        // in addition to the base keycode.
+        //
+        // *Note*: these are not yet supported by crossterm.
+        // const REPORT_ALTERNATE_KEYS = 0b0000_0100;
+        /// Represent all keyboard events as CSI-u sequences. This is required to get repeat/release
+        /// events for plain-text keys.
+        const REPORT_ALL_KEYS_AS_ESCAPE_CODES = 0b0000_1000;
+        // Send the Unicode codepoint as well as the keycode.
+        //
+        // *Note*: this is not yet supported by crossterm.
+        // const REPORT_ASSOCIATED_TEXT = 0b0001_0000;
+    }
+}
+
+/// A command that enables the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/), which adds extra information to keyboard events and removes ambiguity for modifier keys.
+///
+/// It should be paired with [`PopKeyboardEnhancementFlags`] at the end of execution.
+///
+/// Example usage:
+/// ```no_run
+/// use std::io::{Write, stdout};
+/// use crossterm::execute;
+/// use crossterm::event::{
+///     KeyboardEnhancementFlags,
+///     PushKeyboardEnhancementFlags,
+///     PopKeyboardEnhancementFlags
+/// };
+///
+/// let mut stdout = stdout();
+///
+/// execute!(
+///     stdout,
+///     PushKeyboardEnhancementFlags(
+///         KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+///     )
+/// );
+///
+/// // ...
+///
+/// execute!(stdout, PopKeyboardEnhancementFlags);
+/// ```
+///
+/// Note that, currently, only the following support this protocol:
+/// * [kitty terminal](https://sw.kovidgoyal.net/kitty/)
+/// * [foot terminal](https://codeberg.org/dnkl/foot/issues/319)
+/// * [WezTerm terminal](https://wezfurlong.org/wezterm/config/lua/config/enable_kitty_keyboard.html)
+/// * [notcurses library](https://github.com/dankamongmen/notcurses/issues/2131)
+/// * [neovim text editor](https://github.com/neovim/neovim/pull/18181)
+/// * [kakoune text editor](https://github.com/mawww/kakoune/issues/4103)
+/// * [dte text editor](https://gitlab.com/craigbarnes/dte/-/issues/138)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PushKeyboardEnhancementFlags(pub KeyboardEnhancementFlags);
+
+impl Command for PushKeyboardEnhancementFlags {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "{}{}u", csi!(">"), self.0.bits())
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Keyboard progressive enhancement not implemented for the legacy Windows API.",
+        ))
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        false
+    }
+}
+
+/// A command that disables extra kinds of keyboard events.
+///
+/// Specifically, it pops one level of keyboard enhancement flags.
+///
+/// See [`PushKeyboardEnhancementFlags`] and <https://sw.kovidgoyal.net/kitty/keyboard-protocol/> for more information.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PopKeyboardEnhancementFlags;
+
+impl Command for PopKeyboardEnhancementFlags {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str(csi!("<1u"))
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Keyboard progressive enhancement not implemented for the legacy Windows API.",
+        ))
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        false
+    }
+}
+
+/// A command that enables focus event emission.
+///
+/// It should be paired with [`DisableFocusChange`] at the end of execution.
+///
+/// Focus events can be captured with [read](./fn.read.html)/[poll](./fn.poll.html).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnableFocusChange;
+
+impl Command for EnableFocusChange {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str(csi!("?1004h"))
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> Result<()> {
+        // Focus events are always enabled on Windows
+        Ok(())
+    }
+}
+
+/// A command that disables focus event emission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisableFocusChange;
+
+impl Command for DisableFocusChange {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str(csi!("?1004l"))
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> Result<()> {
+        // Focus events can't be disabled on Windows
+        Ok(())
+    }
+}
+
+/// A command that enables [bracketed paste mode](https://en.wikipedia.org/wiki/Bracketed-paste).
+///
+/// It should be paired with [`DisableBracketedPaste`] at the end of execution.
+///
+/// This is not supported in older Windows terminals without
+/// [virtual terminal sequences](https://docs.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences).
+#[cfg(feature = "bracketed-paste")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnableBracketedPaste;
+
+#[cfg(feature = "bracketed-paste")]
+impl Command for EnableBracketedPaste {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str(csi!("?2004h"))
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Bracketed paste not implemented in the legacy Windows API.",
+        ))
+    }
+}
+
+/// A command that disables bracketed paste mode.
+#[cfg(feature = "bracketed-paste")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisableBracketedPaste;
+
+#[cfg(feature = "bracketed-paste")]
+impl Command for DisableBracketedPaste {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str(csi!("?2004l"))
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Represents an event.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
+#[cfg_attr(not(feature = "bracketed-paste"), derive(Copy))]
+#[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Hash)]
 pub enum Event {
+    /// The terminal gained focus
+    FocusGained,
+    /// The terminal lost focus
+    FocusLost,
     /// A single key event with additional pressed modifiers.
     Key(KeyEvent),
     /// A single mouse event with additional pressed modifiers.
     Mouse(MouseEvent),
+    /// A string that was pasted into the terminal. Only emitted if bracketed paste has been
+    /// enabled.
+    #[cfg(feature = "bracketed-paste")]
+    Paste(String),
     /// An resize event with new dimensions after resize (columns, rows).
     /// **Note** that resize events can be occur in batches.
     Resize(u16, u16),
@@ -374,12 +585,50 @@ pub enum MouseButton {
 }
 
 bitflags! {
-    /// Represents key modifiers (shift, control, alt).
+    /// Represents key modifiers (shift, control, alt, etc.).
+    ///
+    /// **Note:** `SUPER`, `HYPER`, and `META` can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct KeyModifiers: u8 {
         const SHIFT = 0b0000_0001;
         const CONTROL = 0b0000_0010;
         const ALT = 0b0000_0100;
+        const SUPER = 0b0000_1000;
+        const HYPER = 0b0001_0000;
+        const META = 0b0010_0000;
+        const NONE = 0b0000_0000;
+    }
+}
+
+/// Represents a keyboard event kind.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum KeyEventKind {
+    Press,
+    Repeat,
+    Release,
+}
+
+bitflags! {
+    /// Represents extra state about the key event.
+    ///
+    /// **Note:** This state can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct KeyEventState: u8 {
+        /// The key event origins from the keypad.
+        const KEYPAD = 0b0000_0001;
+        /// Caps Lock was enabled for this key event.
+        ///
+        /// **Note:** this is set for the initial press of Num Lock itself.
+        const CAPS_LOCK = 0b0000_1000;
+        /// Num Lock was enabled for this key event.
+        ///
+        /// **Note:** this is set for the initial press of Num Lock itself.
+        const NUM_LOCK = 0b0000_1000;
         const NONE = 0b0000_0000;
     }
 }
@@ -392,11 +641,50 @@ pub struct KeyEvent {
     pub code: KeyCode,
     /// Additional key modifiers.
     pub modifiers: KeyModifiers,
+    /// Kind of event.
+    pub kind: KeyEventKind,
+    /// Keyboard state.
+    ///
+    /// Only set if [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    pub state: KeyEventState,
 }
 
 impl KeyEvent {
     pub const fn new(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-        KeyEvent { code, modifiers }
+        KeyEvent {
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        }
+    }
+
+    pub const fn new_with_kind(
+        code: KeyCode,
+        modifiers: KeyModifiers,
+        kind: KeyEventKind,
+    ) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind,
+            state: KeyEventState::empty(),
+        }
+    }
+
+    pub const fn new_with_kind_and_state(
+        code: KeyCode,
+        modifiers: KeyModifiers,
+        kind: KeyEventKind,
+        state: KeyEventState,
+    ) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind,
+            state,
+        }
     }
 
     // modifies the KeyEvent,
@@ -422,6 +710,8 @@ impl From<KeyCode> for KeyEvent {
         KeyEvent {
             code,
             modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
         }
     }
 }
@@ -431,23 +721,103 @@ impl PartialEq for KeyEvent {
         let KeyEvent {
             code: lhs_code,
             modifiers: lhs_modifiers,
+            kind: lhs_kind,
+            state: lhs_state,
         } = self.normalize_case();
         let KeyEvent {
             code: rhs_code,
             modifiers: rhs_modifiers,
+            kind: rhs_kind,
+            state: rhs_state,
         } = other.normalize_case();
-        (lhs_code == rhs_code) && (lhs_modifiers == rhs_modifiers)
+        (lhs_code == rhs_code)
+            && (lhs_modifiers == rhs_modifiers)
+            && (lhs_kind == rhs_kind)
+            && (lhs_state == rhs_state)
     }
 }
 
 impl Eq for KeyEvent {}
 
 impl Hash for KeyEvent {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let KeyEvent { code, modifiers } = self.normalize_case();
-        code.hash(state);
-        modifiers.hash(state);
+    fn hash<H: Hasher>(&self, hash_state: &mut H) {
+        let KeyEvent {
+            code,
+            modifiers,
+            kind,
+            state,
+        } = self.normalize_case();
+        code.hash(hash_state);
+        modifiers.hash(hash_state);
+        kind.hash(hash_state);
+        state.hash(hash_state);
     }
+}
+
+/// Represents a media key (as part of [`KeyCode::Media`]).
+#[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum MediaKeyCode {
+    /// Play media key.
+    Play,
+    /// Pause media key.
+    Pause,
+    /// Play/Pause media key.
+    PlayPause,
+    /// Reverse media key.
+    Reverse,
+    /// Stop media key.
+    Stop,
+    /// Fast-forward media key.
+    FastForward,
+    /// Rewind media key.
+    Rewind,
+    /// Next-track media key.
+    TrackNext,
+    /// Previous-track media key.
+    TrackPrevious,
+    /// Record media key.
+    Record,
+    /// Lower-volume media key.
+    LowerVolume,
+    /// Raise-volume media key.
+    RaiseVolume,
+    /// Mute media key.
+    MuteVolume,
+}
+
+/// Represents a modifier key (as part of [`KeyCode::Modifier`]).
+#[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum ModifierKeyCode {
+    /// Left Shift key.
+    LeftShift,
+    /// Left Control key.
+    LeftControl,
+    /// Left Alt key.
+    LeftAlt,
+    /// Left Super key.
+    LeftSuper,
+    /// Left Hyper key.
+    LeftHyper,
+    /// Left Meta key.
+    LeftMeta,
+    /// Right Shift key.
+    RightShift,
+    /// Right Control key.
+    RightControl,
+    /// Right Alt key.
+    RightAlt,
+    /// Right Super key.
+    RightSuper,
+    /// Right Hyper key.
+    RightHyper,
+    /// Right Meta key.
+    RightMeta,
+    /// Iso Level3 Shift key.
+    IsoLevel3Shift,
+    /// Iso Level5 Shift key.
+    IsoLevel5Shift,
 }
 
 /// Represents a key.
@@ -494,6 +864,61 @@ pub enum KeyCode {
     Null,
     /// Escape key.
     Esc,
+    /// Caps Lock key.
+    ///
+    /// **Note:** this key can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    CapsLock,
+    /// Scroll Lock key.
+    ///
+    /// **Note:** this key can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    ScrollLock,
+    /// Num Lock key.
+    ///
+    /// **Note:** this key can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    NumLock,
+    /// Print Screen key.
+    ///
+    /// **Note:** this key can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    PrintScreen,
+    /// Pause key.
+    ///
+    /// **Note:** this key can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    Pause,
+    /// Menu key.
+    ///
+    /// **Note:** this key can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    Menu,
+    /// The "Begin" key (often mapped to the 5 key when Num Lock is turned on).
+    ///
+    /// **Note:** this key can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    KeypadBegin,
+    /// A media key.
+    ///
+    /// **Note:** these keys can only be read if
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    Media(MediaKeyCode),
+    /// A modifier key.
+    ///
+    /// **Note:** these keys can only be read if **both**
+    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] and
+    /// [`KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES`] have been enabled with
+    /// [`PushKeyboardEnhancementFlags`].
+    Modifier(ModifierKeyCode),
 }
 
 /// An internal event.

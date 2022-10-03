@@ -25,15 +25,14 @@ use futures::stream::StreamExt;
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
 use libp2p::core::transport::OrTransport;
 use libp2p::core::upgrade;
-use libp2p::dcutr;
 use libp2p::dns::DnsConfig;
 use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent, IdentifyInfo};
 use libp2p::noise;
-use libp2p::ping::{Ping, PingConfig, PingEvent};
 use libp2p::relay::v2::client::{self, Client};
 use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::tcp::{GenTcpConfig, TcpTransport};
 use libp2p::Transport;
+use libp2p::{dcutr, ping};
 use libp2p::{identity, NetworkBehaviour, PeerId};
 use log::info;
 use std::convert::TryInto;
@@ -89,10 +88,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (relay_transport, client) = Client::new_transport_and_behaviour(local_peer_id);
 
-    let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
-        .into_authentic(&local_key)
-        .expect("Signing libp2p-noise static DH keypair failed.");
-
     let transport = OrTransport::new(
         relay_transport,
         block_on(DnsConfig::system(TcpTransport::new(
@@ -101,29 +96,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap(),
     )
     .upgrade(upgrade::Version::V1)
-    .authenticate(noise::NoiseConfig::xx(noise_keys).into_authenticated())
-    .multiplex(libp2p_yamux::YamuxConfig::default())
+    .authenticate(
+        noise::NoiseAuthenticated::xx(&local_key)
+            .expect("Signing libp2p-noise static DH keypair failed."),
+    )
+    .multiplex(libp2p::yamux::YamuxConfig::default())
     .boxed();
 
     #[derive(NetworkBehaviour)]
     #[behaviour(out_event = "Event", event_process = false)]
     struct Behaviour {
         relay_client: Client,
-        ping: Ping,
+        ping: ping::Behaviour,
         identify: Identify,
         dcutr: dcutr::behaviour::Behaviour,
     }
 
     #[derive(Debug)]
     enum Event {
-        Ping(PingEvent),
+        Ping(ping::Event),
         Identify(IdentifyEvent),
         Relay(client::Event),
         Dcutr(dcutr::behaviour::Event),
     }
 
-    impl From<PingEvent> for Event {
-        fn from(e: PingEvent) -> Self {
+    impl From<ping::Event> for Event {
+        fn from(e: ping::Event) -> Self {
             Event::Ping(e)
         }
     }
@@ -148,7 +146,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let behaviour = Behaviour {
         relay_client: client,
-        ping: Ping::new(PingConfig::new()),
+        ping: ping::Behaviour::new(ping::Config::new()),
         identify: Identify::new(IdentifyConfig::new(
             "/TODO/0.0.1".to_string(),
             local_key.public(),

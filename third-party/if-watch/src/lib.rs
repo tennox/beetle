@@ -2,8 +2,9 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
+use futures::stream::FusedStream;
+use futures::Stream;
 pub use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use std::future::Future;
 use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -55,33 +56,44 @@ pub struct IfWatcher(platform_impl::IfWatcher);
 
 impl IfWatcher {
     /// Create a watcher
-    pub async fn new() -> Result<Self> {
-        Ok(Self(platform_impl::IfWatcher::new().await?))
+    pub fn new() -> Result<Self> {
+        platform_impl::IfWatcher::new().map(Self)
     }
 
     /// Iterate over current networks.
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.0.iter()
     }
+
+    /// Poll for an address change event.
+    pub fn poll_if_event(&mut self, cx: &mut Context) -> Poll<Result<IfEvent>> {
+        self.0.poll_if_event(cx)
+    }
 }
 
-impl Future for IfWatcher {
-    type Output = Result<IfEvent>;
+impl Stream for IfWatcher {
+    type Item = Result<IfEvent>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::into_inner(self).poll_if_event(cx).map(Some)
+    }
+}
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        Pin::new(&mut self.0).poll(cx)
+impl FusedStream for IfWatcher {
+    fn is_terminated(&self) -> bool {
+        false
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
 
     #[test]
     fn test_ip_watch() {
         futures::executor::block_on(async {
-            let mut set = IfWatcher::new().await.unwrap();
-            let event = Pin::new(&mut set).await.unwrap();
+            let mut set = IfWatcher::new().unwrap();
+            let event = set.select_next_some().await.unwrap();
             println!("Got event {:?}", event);
         });
     }
@@ -91,8 +103,8 @@ mod tests {
         futures::executor::block_on(async {
             fn is_send<T: Send>(_: T) {}
             is_send(IfWatcher::new());
-            is_send(IfWatcher::new().await.unwrap());
-            is_send(Pin::new(&mut IfWatcher::new().await.unwrap()));
+            is_send(IfWatcher::new().unwrap());
+            is_send(Pin::new(&mut IfWatcher::new().unwrap()));
         });
     }
 }

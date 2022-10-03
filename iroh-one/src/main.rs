@@ -69,14 +69,11 @@ async fn main() -> Result<()> {
     };
 
     #[cfg(not(feature = "uds-gateway"))]
-    let (rpc_addr, gw_sender) = Addr::new_mem();
-    #[cfg(not(feature = "uds-gateway"))]
     {
         if config.gateway.port == 0 {
             println!("Neither listening on an HTTP port, nor using UDS: check your configuration!");
             return Ok(());
         }
-        config.rpc_client.gateway_addr = Some(gw_sender);
     }
 
     config.synchronize_subconfigs();
@@ -86,8 +83,7 @@ async fn main() -> Result<()> {
 
     let metrics_config = config.metrics.clone();
 
-    #[cfg(feature = "uds-gateway")]
-    let rpc_addr = config
+    let gateway_rpc_addr = config
         .gateway
         .server_rpc_addr()?
         .ok_or_else(|| anyhow!("missing gateway rpc addr"))?;
@@ -115,7 +111,7 @@ async fn main() -> Result<()> {
 
     let shared_state2 = Arc::clone(&shared_state);
     let core_task = tokio::spawn(async move {
-        let handler = Core::new_with_state(rpc_addr, Arc::clone(&shared_state2))
+        let handler = Core::new_with_state(gateway_rpc_addr, Arc::clone(&shared_state2))
             .await
             .unwrap();
         if config.gateway.port != 0 {

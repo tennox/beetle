@@ -1,6 +1,14 @@
 //! `tonic-build` compiles `proto` files via `prost` and generates service stubs
 //! and proto definitiones for use with `tonic`.
 //!
+//! # Feature flags
+//!
+//! - `cleanup-markdown`: Enables cleaning up documentation from the generated code. Useful
+//! when documentation of the generated code fails `cargo test --doc` for example.
+//! - `prost`: Enables usage of prost generator (enabled by default).
+//! - `transport`: Enables generation of `connect` method using `tonic::transport::Channel`
+//! (enabled by default).
+//!
 //! # Required dependencies
 //!
 //! ```toml
@@ -62,7 +70,7 @@
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/website/master/public/img/icons/tonic.svg"
 )]
 #![deny(rustdoc::broken_intra_doc_links)]
-#![doc(html_root_url = "https://docs.rs/tonic-build/0.8.0")]
+#![doc(html_root_url = "https://docs.rs/tonic-build/0.8.2")]
 #![doc(issue_tracker_base_url = "https://github.com/hyperium/tonic/issues/")]
 #![doc(test(no_crate_inject, attr(deny(rust_2018_idioms))))]
 #![cfg_attr(docsrs, feature(doc_cfg))]

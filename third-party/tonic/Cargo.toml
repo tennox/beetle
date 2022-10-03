@@ -12,13 +12,13 @@
 [package]
 edition = "2018"
 name = "tonic"
-version = "0.8.1"
+version = "0.8.2"
 authors = ["Lucio Franco <luciofranco14@gmail.com>"]
 description = """
 A gRPC over HTTP/2 implementation focused on high performance, interoperability, and flexibility.
 """
 homepage = "https://github.com/hyperium/tonic"
-documentation = "https://docs.rs/tonic/0.8.1/tonic/"
+documentation = "https://docs.rs/tonic/0.8.2/tonic/"
 readme = "README.md"
 keywords = [
     "rpc",
@@ -54,7 +54,7 @@ version = "0.1.13"
 optional = true
 
 [dependencies.axum]
-version = "0.5"
+version = "0.5.15"
 optional = true
 default_features = false
 

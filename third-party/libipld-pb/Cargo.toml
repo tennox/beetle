@@ -10,19 +10,20 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
 name = "libipld-pb"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["David Craven <david@craven.ch>"]
 description = "ipld protobuf codec"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ipfs-rust/rust-ipld"
+resolver = "2"
 
 [dependencies.libipld-core]
-version = "0.13.0"
+version = "0.14.0"
 
 [dependencies.prost]
-version = "0.9.0"
+version = "0.10.0"
 
 [dependencies.thiserror]
 version = "1.0.25"
@@ -31,4 +32,4 @@ version = "1.0.25"
 version = "0.16.0"
 
 [build-dependencies.prost-build]
-version = "0.9.0"
+version = "0.10.0"

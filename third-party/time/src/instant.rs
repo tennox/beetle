@@ -1,9 +1,9 @@
 //! The [`Instant`] struct and its associated `impl`s.
 
+use core::borrow::Borrow;
 use core::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use core::ops::{Add, Sub};
 use core::time::Duration as StdDuration;
-use std::borrow::Borrow;
 use std::time::Instant as StdInstant;
 
 use crate::Duration;
@@ -25,7 +25,6 @@ use crate::Duration;
 ///
 /// This implementation allows for operations with signed [`Duration`]s, but is otherwise identical
 /// to [`std::time::Instant`].
-#[cfg_attr(__time_03_docs, doc(cfg(feature = "std")))]
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Instant(pub StdInstant);

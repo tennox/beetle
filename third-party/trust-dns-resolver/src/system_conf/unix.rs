@@ -37,7 +37,7 @@ fn read_resolv_conf<P: AsRef<Path>>(path: P) -> io::Result<(ResolverConfig, Reso
     parse_resolv_conf(&data)
 }
 
-fn parse_resolv_conf<T: AsRef<[u8]>>(data: T) -> io::Result<(ResolverConfig, ResolverOpts)> {
+pub fn parse_resolv_conf<T: AsRef<[u8]>>(data: T) -> io::Result<(ResolverConfig, ResolverOpts)> {
     let parsed_conf = resolv_conf::Config::parse(&data).map_err(|e| {
         io::Error::new(
             io::ErrorKind::Other,
@@ -52,7 +52,11 @@ fn into_resolver_config(
     parsed_config: resolv_conf::Config,
 ) -> io::Result<(ResolverConfig, ResolverOpts)> {
     let domain = if let Some(domain) = parsed_config.get_system_domain() {
-        Some(Name::from_str(domain.as_str())?)
+        // The system domain name maybe appear to be valid to the resolv_conf
+        // crate but actually be invalid. For example, if the hostname is "matt.schulte's computer"
+        // In order to prevent a hostname which macOS or Windows would consider
+        // valid from returning an error here we turn parse errors to options
+        Name::from_str(domain.as_str()).ok()
     } else {
         None
     };
@@ -80,7 +84,7 @@ fn into_resolver_config(
         });
     }
     if nameservers.is_empty() {
-        warn!("no nameservers found in config");
+        tracing::warn!("no nameservers found in config");
     }
 
     // search

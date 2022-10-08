@@ -1,6 +1,4 @@
 use crate::convert::*;
-#[cfg(feature = "specialize")]
-use crate::fallback_hash::MULTIPLE;
 use crate::operations::*;
 use crate::RandomState;
 use core::hash::Hasher;
@@ -50,7 +48,7 @@ impl AHasher {
     /// println!("Hash is {:x}!", hasher.finish());
     /// ```
     #[inline]
-    pub fn new_with_keys(key1: u128, key2: u128) -> Self {
+    pub(crate) fn new_with_keys(key1: u128, key2: u128) -> Self {
         let pi: [u128; 2] = PI.convert();
         let key1 = key1 ^ pi[0];
         let key2 = key2 ^ pi[1];
@@ -80,14 +78,6 @@ impl AHasher {
             sum: key2,
             key: key1 ^ key2,
         }
-    }
-
-    #[inline(always)]
-    fn add_in_length(&mut self, length: u64) {
-        //This will be scrambled by the next AES round.
-        let mut enc: [u64; 2] = self.enc.convert();
-        enc[0] = enc[0].wrapping_add(length);
-        self.enc = enc.convert();
     }
 
     #[inline(always)]
@@ -159,7 +149,8 @@ impl Hasher for AHasher {
     fn write(&mut self, input: &[u8]) {
         let mut data = input;
         let length = data.len();
-        self.add_in_length(length as u64);
+        add_in_length(&mut self.enc, length as u64);
+
         //A 'binary search' on sizes reduces the number of comparisons.
         if data.len() <= 8 {
             let value = read_small(data);
@@ -337,7 +328,8 @@ impl Hasher for AHasherStr {
             self.0.enc = aesdec(self.0.sum, self.0.enc);
             self.0.enc = aesenc(aesenc(self.0.enc, self.0.key), self.0.enc);
         } else {
-            self.0.add_in_length(bytes.len() as u64);
+            add_in_length(&mut self.0.enc, bytes.len() as u64);
+
             let value = read_small(bytes).convert();
             self.0.sum = shuffle_and_add(self.0.sum, value);
             self.0.enc = aesdec(self.0.sum, self.0.enc);

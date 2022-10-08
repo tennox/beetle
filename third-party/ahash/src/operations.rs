@@ -1,5 +1,8 @@
 use crate::convert::*;
 
+///This constant come from Kunth's prng (Empirically it works better than those from splitmix32).
+pub(crate) const MULTIPLE: u64 = 6364136223846793005;
+
 /// This is a constant with a lot of special properties found by automated search.
 /// See the unit tests below. (Below are alternative values)
 #[cfg(all(target_feature = "ssse3", not(miri)))]
@@ -60,7 +63,7 @@ pub(crate) fn add_and_shuffle(a: u128, b: u128) -> u128 {
     shuffle(sum.convert())
 }
 
-#[allow(unused)] //not used by fallbac
+#[allow(unused)] //not used by fallback
 #[inline(always)]
 pub(crate) fn shuffle_and_add(base: u128, to_add: u128) -> u128 {
     let shuffled: [u64; 2] = shuffle(base).convert();
@@ -101,7 +104,7 @@ pub(crate) fn aesenc(value: u128, xor: u128) -> u128 {
     }
 }
 
-#[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), target_feature = "crypto", not(miri), feature = "stdsimd"))]
+#[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), any(target_feature = "aes", target_feature = "crypto"), not(miri), feature = "stdsimd"))]
 #[allow(unused)]
 #[inline(always)]
 pub(crate) fn aesenc(value: u128, xor: u128) -> u128 {
@@ -131,7 +134,7 @@ pub(crate) fn aesdec(value: u128, xor: u128) -> u128 {
     }
 }
 
-#[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), target_feature = "crypto", not(miri), feature = "stdsimd"))]
+#[cfg(all(any(target_arch = "arm", target_arch = "aarch64"), any(target_feature = "aes", target_feature = "crypto"), not(miri), feature = "stdsimd"))]
 #[allow(unused)]
 #[inline(always)]
 pub(crate) fn aesdec(value: u128, xor: u128) -> u128 {
@@ -143,6 +146,30 @@ pub(crate) fn aesdec(value: u128, xor: u128) -> u128 {
     unsafe {
         let value = transmute(value);
         transmute(vaesimcq_u8(vaesdq_u8(value, transmute(xor))))
+    }
+}
+
+#[allow(unused)]
+#[inline(always)]
+pub(crate) fn add_in_length(enc: &mut u128, len: u64) {
+    #[cfg(all(target_arch = "x86_64", target_feature = "sse2", not(miri)))]
+    {
+        #[cfg(target_arch = "x86_64")]
+        use core::arch::x86_64::*;
+
+        unsafe {
+            let enc = enc as *mut u128;
+            let len = _mm_cvtsi64_si128(len as i64);
+            let data = _mm_loadu_si128(enc.cast());
+            let sum = _mm_add_epi64(data, len);
+            _mm_storeu_si128(enc.cast(), sum);
+        }
+    }
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "sse2", not(miri))))]
+    {
+        let mut t: [u64; 2] = enc.convert();
+        t[0] = t[0].wrapping_add(len);
+        *enc = t.convert();
     }
 }
 
@@ -326,5 +353,13 @@ mod test {
             assert_ne!(numbered, shuffled, "Equal after {} vs {:x}", count, shuffled);
             shuffled = shuffle(shuffled);
         }
+    }
+
+    #[test]
+    fn test_add_length() {
+        let mut enc = (u64::MAX as u128) << 64 | 50;
+        add_in_length(&mut enc, u64::MAX);
+        assert_eq!(enc >> 64, u64::MAX as u128);
+        assert_eq!(enc as u64, 49);
     }
 }

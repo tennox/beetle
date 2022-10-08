@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.56"
 name = "prettyplease"
-version = "0.1.19"
+version = "0.1.20"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 links = "prettyplease01"
 exclude = ["cargo-expand"]

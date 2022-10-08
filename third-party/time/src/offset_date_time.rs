@@ -27,7 +27,7 @@ const UNIX_EPOCH_JULIAN_DAY: i32 = Date::__from_ordinal_date_unchecked(1970, 1).
 /// A [`PrimitiveDateTime`] with a [`UtcOffset`].
 ///
 /// All comparisons are performed using the UTC time.
-#[derive(Debug, Clone, Copy, Eq)]
+#[derive(Clone, Copy, Eq)]
 pub struct OffsetDateTime {
     /// The [`PrimitiveDateTime`], which is _always_ in the stored offset.
     pub(crate) local_datetime: PrimitiveDateTime,
@@ -55,7 +55,6 @@ impl OffsetDateTime {
     /// assert_eq!(OffsetDateTime::now_utc().offset(), offset!(UTC));
     /// ```
     #[cfg(feature = "std")]
-    #[cfg_attr(__time_03_docs, doc(cfg(feature = "std")))]
     pub fn now_utc() -> Self {
         #[cfg(all(
             target_arch = "wasm32",
@@ -84,7 +83,6 @@ impl OffsetDateTime {
     /// # }
     /// ```
     #[cfg(feature = "local-offset")]
-    #[cfg_attr(__time_03_docs, doc(cfg(feature = "local-offset")))]
     pub fn now_local() -> Result<Self, error::IndeterminateOffset> {
         let t = Self::now_utc();
         Ok(t.to_offset(UtcOffset::local_offset_at(t)?))
@@ -154,7 +152,8 @@ impl OffsetDateTime {
         let mut minute =
             self.minute() as i16 - from.minutes_past_hour() as i16 + to.minutes_past_hour() as i16;
         let mut hour = self.hour() as i8 - from.whole_hours() + to.whole_hours();
-        let (mut year, mut ordinal) = self.to_ordinal_date();
+        let (mut year, ordinal) = self.to_ordinal_date();
+        let mut ordinal = ordinal as i16;
 
         // Cascade the values twice. This is needed because the values are adjusted twice above.
         cascade!(second in 0..60 => minute);
@@ -165,9 +164,12 @@ impl OffsetDateTime {
         cascade!(hour in 0..24 => ordinal);
         cascade!(ordinal => year);
 
+        debug_assert!(ordinal > 0);
+        debug_assert!(ordinal <= crate::util::days_in_year(year) as i16);
+
         (
             year,
-            ordinal,
+            ordinal as _,
             Time::__from_hms_nanos_unchecked(
                 hour as _,
                 minute as _,
@@ -1130,6 +1132,12 @@ impl OffsetDateTime {
 impl fmt::Display for OffsetDateTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} {}", self.date(), self.time(), self.offset)
+    }
+}
+
+impl fmt::Debug for OffsetDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
     }
 }
 // endregion formatting & parsing

@@ -678,7 +678,7 @@ use tracing_core::{
     metadata::Metadata,
     span,
     subscriber::{Interest, Subscriber},
-    Event, LevelFilter,
+    Dispatch, Event, LevelFilter,
 };
 
 use core::any::TypeId;
@@ -711,6 +711,31 @@ where
     S: Subscriber,
     Self: 'static,
 {
+    /// Performs late initialization when installing this layer as a
+    /// [`Subscriber`].
+    ///
+    /// ## Avoiding Memory Leaks
+    ///
+    /// `Layer`s should not store the [`Dispatch`] pointing to the [`Subscriber`]
+    /// that they are a part of. Because the `Dispatch` owns the `Subscriber`,
+    /// storing the `Dispatch` within the `Subscriber` will create a reference
+    /// count cycle, preventing the `Dispatch` from ever being dropped.
+    ///
+    /// Instead, when it is necessary to store a cyclical reference to the
+    /// `Dispatch` within a `Layer`, use [`Dispatch::downgrade`] to convert a
+    /// `Dispatch` into a [`WeakDispatch`]. This type is analogous to
+    /// [`std::sync::Weak`], and does not create a reference count cycle. A
+    /// [`WeakDispatch`] can be stored within a subscriber without causing a
+    /// memory leak, and can be [upgraded] into a `Dispatch` temporarily when
+    /// the `Dispatch` must be accessed by the subscriber.
+    ///
+    /// [`WeakDispatch`]: tracing_core::dispatcher::WeakDispatch
+    /// [upgraded]: tracing_core::dispatcher::WeakDispatch::upgrade
+    /// [`Subscriber`]: tracing_core::Subscriber
+    fn on_register_dispatch(&self, collector: &Dispatch) {
+        let _ = collector;
+    }
+
     /// Performs late initialization when attaching a `Layer` to a
     /// [`Subscriber`].
     ///
@@ -1352,6 +1377,26 @@ feature! {
             Interest::sometimes()
         }
 
+        /// Called before the filtered [`Layer]'s [`on_event`], to determine if
+        /// `on_event` should be called.
+        ///
+        /// This gives a chance to filter events based on their fields. Note,
+        /// however, that this *does not* override [`enabled`], and is not even
+        /// called if [`enabled`] returns `false`.
+        ///
+        /// ## Default Implementation
+        ///
+        /// By default, this method returns `true`, indicating that no events are
+        /// filtered out based on their fields.
+        ///
+        /// [`enabled`]: crate::layer::Filter::enabled
+        /// [`on_event`]: crate::layer::Layer::on_event
+        #[inline] // collapse this to a constant please mrs optimizer
+        fn event_enabled(&self, event: &Event<'_>, cx: &Context<'_, S>) -> bool {
+            let _ = (event, cx);
+            true
+        }
+
         /// Returns an optional hint of the highest [verbosity level][level] that
         /// this `Filter` will enable.
         ///
@@ -1451,6 +1496,47 @@ pub struct Identity {
 }
 
 // === impl Layer ===
+
+#[derive(Clone, Copy)]
+pub(crate) struct NoneLayerMarker(());
+static NONE_LAYER_MARKER: NoneLayerMarker = NoneLayerMarker(());
+
+/// Is a type implementing `Layer` `Option::<_>::None`?
+pub(crate) fn layer_is_none<L, S>(layer: &L) -> bool
+where
+    L: Layer<S>,
+    S: Subscriber,
+{
+    unsafe {
+        // Safety: we're not actually *doing* anything with this pointer ---
+        // this only care about the `Option`, which is essentially being used
+        // as a bool. We can rely on the pointer being valid, because it is
+        // a crate-private type, and is only returned by the `Layer` impl
+        // for `Option`s. However, even if the layer *does* decide to be
+        // evil and give us an invalid pointer here, that's fine, because we'll
+        // never actually dereference it.
+        layer.downcast_raw(TypeId::of::<NoneLayerMarker>())
+    }
+    .is_some()
+}
+
+/// Is a type implementing `Subscriber` `Option::<_>::None`?
+pub(crate) fn subscriber_is_none<S>(subscriber: &S) -> bool
+where
+    S: Subscriber,
+{
+    unsafe {
+        // Safety: we're not actually *doing* anything with this pointer ---
+        // this only care about the `Option`, which is essentially being used
+        // as a bool. We can rely on the pointer being valid, because it is
+        // a crate-private type, and is only returned by the `Layer` impl
+        // for `Option`s. However, even if the subscriber *does* decide to be
+        // evil and give us an invalid pointer here, that's fine, because we'll
+        // never actually dereference it.
+        subscriber.downcast_raw(TypeId::of::<NoneLayerMarker>())
+    }
+    .is_some()
+}
 
 impl<L, S> Layer<S> for Option<L>
 where
@@ -1560,6 +1646,8 @@ where
     unsafe fn downcast_raw(&self, id: TypeId) -> Option<*const ()> {
         if id == TypeId::of::<Self>() {
             Some(self as *const _ as *const ())
+        } else if id == TypeId::of::<NoneLayerMarker>() && self.is_none() {
+            Some(&NONE_LAYER_MARKER as *const _ as *const ())
         } else {
             self.as_ref().and_then(|inner| inner.downcast_raw(id))
         }
@@ -1573,6 +1661,11 @@ feature! {
 
     macro_rules! layer_impl_body {
         () => {
+            #[inline]
+            fn on_register_dispatch(&self, subscriber: &Dispatch) {
+                self.deref().on_register_dispatch(subscriber);
+            }
+
             #[inline]
             fn on_layer(&mut self, subscriber: &mut S) {
                 self.deref_mut().on_layer(subscriber);

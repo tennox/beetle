@@ -29,6 +29,8 @@ use tokio_rustls::client::TlsStream as TokioTlsStream;
 use proto::https::{HttpsClientConnect, HttpsClientStream};
 #[cfg(feature = "mdns")]
 use proto::multicast::{MdnsClientConnect, MdnsClientStream, MdnsQueryType};
+#[cfg(feature = "dns-over-quic")]
+use proto::quic::{QuicClientConnect, QuicClientStream};
 use proto::{
     self,
     error::ProtoError,
@@ -86,6 +88,7 @@ pub trait RuntimeProvider: Clone + 'static {
 
 /// A type defines the Handle which can spawn future.
 pub trait Spawn {
+    /// Spawn a future in the background
     fn spawn_bg<F>(&mut self, future: F)
     where
         F: Future<Output = Result<(), ProtoError>> + Send + 'static;
@@ -96,6 +99,7 @@ pub trait Spawn {
 pub struct GenericConnectionProvider<R: RuntimeProvider>(R::Handle);
 
 impl<R: RuntimeProvider> GenericConnectionProvider<R> {
+    /// construct a new Connection provider based on the Runtime Handle
     pub fn new(handle: R::Handle) -> Self {
         Self(handle)
     }
@@ -196,6 +200,22 @@ where
                 );
                 ConnectionConnect::Https(exchange)
             }
+            #[cfg(feature = "dns-over-quic")]
+            Protocol::Quic => {
+                let socket_addr = config.socket_addr;
+                let bind_addr = config.bind_addr;
+                let tls_dns_name = config.tls_dns_name.clone().unwrap_or_default();
+                #[cfg(feature = "dns-over-rustls")]
+                let client_config = config.tls_config.clone();
+
+                let exchange = crate::quic::new_quic_stream(
+                    socket_addr,
+                    bind_addr,
+                    tls_dns_name,
+                    client_config,
+                );
+                ConnectionConnect::Quic(exchange)
+            }
             #[cfg(feature = "mdns")]
             Protocol::Mdns => {
                 let socket_addr = config.socket_addr;
@@ -267,6 +287,8 @@ pub(crate) enum ConnectionConnect<R: RuntimeProvider> {
     ),
     #[cfg(feature = "dns-over-https")]
     Https(DnsExchangeConnect<HttpsClientConnect<R::Tcp>, HttpsClientStream, TokioTime>),
+    #[cfg(feature = "dns-over-quic")]
+    Quic(DnsExchangeConnect<QuicClientConnect, QuicClientStream, TokioTime>),
     #[cfg(feature = "mdns")]
     Mdns(
         DnsExchangeConnect<
@@ -307,6 +329,12 @@ impl<R: RuntimeProvider> Future for ConnectionFuture<R> {
             }
             #[cfg(feature = "dns-over-https")]
             ConnectionConnect::Https(ref mut conn) => {
+                let (conn, bg) = ready!(conn.poll_unpin(cx))?;
+                self.spawner.spawn_bg(bg);
+                GenericConnection(conn)
+            }
+            #[cfg(feature = "dns-over-quic")]
+            ConnectionConnect::Quic(ref mut conn) => {
                 let (conn, bg) = ready!(conn.poll_unpin(cx))?;
                 self.spawner.spawn_bg(bg);
                 GenericConnection(conn)
@@ -353,6 +381,7 @@ pub mod tokio_runtime {
     use super::*;
     use tokio::net::UdpSocket as TokioUdpSocket;
 
+    /// A handle to the Tokio runtime
     #[derive(Clone, Copy)]
     pub struct TokioHandle;
     impl Spawn for TokioHandle {
@@ -364,6 +393,7 @@ pub mod tokio_runtime {
         }
     }
 
+    /// The Tokio Runtime for async execution
     #[derive(Clone, Copy)]
     pub struct TokioRuntime;
     impl RuntimeProvider for TokioRuntime {
@@ -372,6 +402,10 @@ pub mod tokio_runtime {
         type Timer = TokioTime;
         type Udp = TokioUdpSocket;
     }
+
+    /// An alias for Tokio use cases
     pub type TokioConnection = GenericConnection;
+
+    /// An alias for Tokio use cases
     pub type TokioConnectionProvider = GenericConnectionProvider<TokioRuntime>;
 }

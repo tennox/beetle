@@ -81,7 +81,7 @@
 //! requires the local offset will return the `Err` variant when otherwise unsound.
 
 #![doc(html_playground_url = "https://play.rust-lang.org")]
-#![cfg_attr(__time_03_docs, feature(doc_cfg, doc_auto_cfg, doc_notable_trait))]
+#![cfg_attr(__time_03_docs, feature(doc_auto_cfg, doc_notable_trait))]
 #![cfg_attr(
     __time_03_docs,
     deny(rustdoc::broken_intra_doc_links, rustdoc::private_intra_doc_links)
@@ -90,6 +90,10 @@
 #![deny(
     anonymous_parameters,
     clippy::all,
+    clippy::alloc_instead_of_core,
+    clippy::explicit_auto_deref,
+    clippy::obfuscated_if_else,
+    clippy::std_instead_of_core,
     clippy::undocumented_unsafe_blocks,
     const_err,
     illegal_floating_point_literal_pattern,
@@ -212,12 +216,12 @@ macro_rules! cascade {
         cascade!(@ordinal $ordinal);
         cascade!(@year $year);
         #[allow(unused_assignments)]
-        if $ordinal > crate::util::days_in_year($year) {
+        if $ordinal > crate::util::days_in_year($year) as i16 {
+            $ordinal -= crate::util::days_in_year($year) as i16;
             $year += 1;
-            $ordinal = 1;
-        } else if $ordinal == 0 {
+        } else if $ordinal < 1 {
             $year -= 1;
-            $ordinal = crate::util::days_in_year($year);
+            $ordinal += crate::util::days_in_year($year) as i16;
         }
     };
 }
@@ -279,6 +283,18 @@ macro_rules! const_try_opt {
         }
     };
 }
+
+/// Try to unwrap an expression, panicking if not possible.
+///
+/// This is similar to `$e.expect($message)`, but is usable in `const` contexts.
+macro_rules! expect_opt {
+    ($e:expr, $message:literal) => {
+        match $e {
+            Some(value) => value,
+            None => crate::expect_failed($message),
+        }
+    };
+}
 // endregion macros
 
 mod date;
@@ -299,13 +315,10 @@ mod offset_date_time;
 pub mod parsing;
 mod primitive_date_time;
 #[cfg(feature = "quickcheck")]
-#[cfg_attr(__time_03_docs, doc(cfg(feature = "quickcheck")))]
 mod quickcheck;
 #[cfg(feature = "rand")]
-#[cfg_attr(__time_03_docs, doc(cfg(feature = "rand")))]
 mod rand;
 #[cfg(feature = "serde")]
-#[cfg_attr(__time_03_docs, doc(cfg(feature = "serde")))]
 #[allow(missing_copy_implementations, missing_debug_implementations)]
 pub mod serde;
 mod sys;
@@ -330,3 +343,11 @@ pub use crate::weekday::Weekday;
 
 /// An alias for [`std::result::Result`] with a generic error from the time crate.
 pub type Result<T> = core::result::Result<T, Error>;
+
+/// This is a separate function to reduce the code size of `expect_opt!`.
+#[inline(never)]
+#[cold]
+#[track_caller]
+const fn expect_failed(message: &str) -> ! {
+    panic!("{}", message)
+}

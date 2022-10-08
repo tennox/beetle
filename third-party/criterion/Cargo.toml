@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "criterion"
-version = "0.3.6"
+version = "0.4.0"
 authors = [
     "Jorge Aparicio <japaricious@gmail.com>",
     "Brook Heisler <brookheisler@gmail.com>",
@@ -44,25 +44,33 @@ bench = false
 name = "bench_main"
 harness = false
 
+[dependencies.anes]
+version = "0.1.4"
+
 [dependencies.async-std]
 version = "1.9"
 optional = true
 
 [dependencies.atty]
-version = "~0.2.6"
+version = "0.2.6"
 
 [dependencies.cast]
 version = "0.3"
 
+[dependencies.ciborium]
+version = "0.2.0"
+
 [dependencies.clap]
-version = "2.34"
+version = "3.1"
+features = ["std"]
 default-features = false
 
 [dependencies.criterion-plot]
-version = "0.4.4"
+version = "0.5.0"
 
 [dependencies.csv]
 version = "1.1"
+optional = true
 
 [dependencies.futures]
 version = "0.3"
@@ -77,6 +85,7 @@ version = "1.4"
 
 [dependencies.num-traits]
 version = "0.2"
+features = ["std"]
 default-features = false
 
 [dependencies.oorandom]
@@ -89,21 +98,20 @@ features = [
     "area_series",
     "line_series",
 ]
+optional = true
 default-features = false
 
 [dependencies.rayon]
 version = "1.3"
+optional = true
 
 [dependencies.regex]
-version = "1.3"
+version = "1.5"
 features = ["std"]
 default-features = false
 
 [dependencies.serde]
 version = "1.0"
-
-[dependencies.serde_cbor]
-version = "0.11"
 
 [dependencies.serde_derive]
 version = "1.0"
@@ -165,11 +173,17 @@ async_tokio = [
     "async",
 ]
 cargo_bench_support = []
-csv_output = []
-default = ["cargo_bench_support"]
+csv_output = ["csv"]
+default = [
+    "rayon",
+    "plotters",
+    "cargo_bench_support",
+]
 html_reports = []
 real_blackbox = []
 stable = [
+    "csv_output",
+    "html_reports",
     "async_futures",
     "async_smol",
     "async_tokio",

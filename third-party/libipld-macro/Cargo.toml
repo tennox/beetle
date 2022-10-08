@@ -10,16 +10,17 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
 name = "libipld-macro"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["David Craven <david@craven.ch>"]
 description = "ipld macro"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ipfs-rust/rust-ipld"
+resolver = "2"
 
 [dependencies.libipld-core]
-version = "0.13.0"
+version = "0.14.0"
 
 [dev-dependencies.multihash]
 version = "0.16.0"

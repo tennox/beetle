@@ -67,6 +67,7 @@
 use crate::layer;
 use crate::sync::RwLock;
 
+use core::any::TypeId;
 use std::{
     error, fmt,
     marker::PhantomData,
@@ -75,7 +76,7 @@ use std::{
 use tracing_core::{
     callsite, span,
     subscriber::{Interest, Subscriber},
-    Event, LevelFilter, Metadata,
+    Dispatch, Event, LevelFilter, Metadata,
 };
 
 /// Wraps a `Layer` or `Filter`, allowing it to be reloaded dynamically at runtime.
@@ -115,6 +116,10 @@ where
     L: crate::Layer<S> + 'static,
     S: Subscriber,
 {
+    fn on_register_dispatch(&self, subscriber: &Dispatch) {
+        try_lock!(self.inner.read()).on_register_dispatch(subscriber);
+    }
+
     fn on_layer(&mut self, subscriber: &mut S) {
         try_lock!(self.inner.write(), else return).on_layer(subscriber);
     }
@@ -177,6 +182,25 @@ where
     #[inline]
     fn max_level_hint(&self) -> Option<LevelFilter> {
         try_lock!(self.inner.read(), else return None).max_level_hint()
+    }
+
+    #[doc(hidden)]
+    unsafe fn downcast_raw(&self, id: TypeId) -> Option<*const ()> {
+        // Safety: it is generally unsafe to downcast through a reload, because
+        // the pointer can be invalidated after the lock is dropped.
+        // `NoneLayerMarker` is a special case because it
+        // is never dereferenced.
+        //
+        // Additionally, even if the marker type *is* dereferenced (which it
+        // never will be), the pointer should be valid even if the subscriber
+        // is reloaded, because all `NoneLayerMarker` pointers that we return
+        // actually point to the global static singleton `NoneLayerMarker`,
+        // rather than to a field inside the lock.
+        if id == TypeId::of::<layer::NoneLayerMarker>() {
+            return try_lock!(self.inner.read(), else return None).downcast_raw(id);
+        }
+
+        None
     }
 }
 

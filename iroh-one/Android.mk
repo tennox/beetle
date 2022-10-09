@@ -4,7 +4,7 @@
 
 LOCAL_PATH:= $(call my-dir)
 GONK_DIR := $(abspath $(LOCAL_PATH)/../../)
-DAEMON_ROOT := $(abspath $(LOCAL_PATH))
+IROH_ROOT := $(abspath $(LOCAL_PATH))
 
 # Add the ipfsd executable.
 include $(CLEAR_VARS)
@@ -35,7 +35,7 @@ LOCAL_MODULE_PATH := $(TARGET_OUT)/ipfsd
 include $(BUILD_SYSTEM)/base_rules.mk
 
 ifndef ANDROID_NDK
-LOCAL_NDK := $(HOME)/.mozbuild/android-ndk-r21d
+LOCAL_NDK := $(HOME)/.mozbuild/android-ndk-r25b
 else
 LOCAL_NDK := $(ANDROID_NDK)
 endif
@@ -46,12 +46,12 @@ $(LOCAL_BUILT_MODULE): $(TARGET_CRTBEGIN_DYNAMIC_O) $(TARGET_CRTEND_O)
 	export BUILD_WITH_NDK_DIR=$(LOCAL_NDK) && \
 	export GONK_DIR=$(GONK_DIR) && \
 	export GONK_PRODUCT=$(TARGET_DEVICE) && \
-	(cd $(DAEMON_ROOT) ; $(SHELL) xcompile.sh --release --strip)
+	(cd $(IROH_ROOT) ; $(SHELL) xcompile.sh --release --strip)
 
-$(LOCAL_INSTALLED_MODULE): $(LOCAL_BUILT_MODULE)
+	@touch $(TARGET_OUT_INTERMEDIATES)/EXECUTABLES/ipfsd_intermediates/ipfsd
 	@mkdir -p $(@D)
 	@mkdir -p $(TARGET_OUT)/ipfsd
 	@rm -rf $(TARGET_OUT)/ipfsd/*
 
-	@cp $(DAEMON_ROOT)/config-gonk.toml $(TARGET_OUT)/ipfsd/config.toml
-	@cp $(DAEMON_ROOT)/../$(IPFSD_EXEC) $(TARGET_OUT)/bin/ipfsd
+	@cp $(IROH_ROOT)/config-gonk.toml $(TARGET_OUT)/ipfsd/config.toml
+	@cp $(IROH_ROOT)/../$(IPFSD_EXEC) $(TARGET_OUT)/bin/ipfsd

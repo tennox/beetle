@@ -1,10 +1,11 @@
-#![doc(html_root_url = "https://docs.rs/tower-layer/0.3.1")]
 #![warn(
     missing_debug_implementations,
     missing_docs,
     rust_2018_idioms,
     unreachable_pub
 )]
+#![forbid(unsafe_code)]
+// `rustdoc::broken_intra_doc_links` is checked on CI
 
 //! Layer traits and extensions.
 //!
@@ -13,11 +14,12 @@
 //!
 //! A middleware implements the [`Layer`] and [`Service`] trait.
 //!
-//! [`Service`]: ../tower/trait.Service.html
+//! [`Service`]: https://docs.rs/tower/latest/tower/trait.Service.html
 
 mod identity;
 mod layer_fn;
 mod stack;
+mod tuple;
 
 pub use self::{
     identity::Identity,
@@ -89,7 +91,7 @@ pub use self::{
 /// is also decoupled from client or server concerns. In other words, the same
 /// log middleware could be used in either a client or a server.
 ///
-/// [`Service`]: ../tower/trait.Service.html
+/// [`Service`]: https://docs.rs/tower/latest/tower/trait.Service.html
 pub trait Layer<S> {
     /// The wrapped service
     type Service;

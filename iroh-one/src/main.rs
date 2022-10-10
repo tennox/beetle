@@ -17,6 +17,7 @@ use iroh_rpc_types::Addr;
 #[cfg(not(target_os = "android"))]
 use iroh_util::iroh_config_path;
 use iroh_util::make_config;
+use iroh_util::lock::ProgramLock;
 #[cfg(feature = "uds-gateway")]
 use tempdir::TempDir;
 use tokio::sync::RwLock;
@@ -26,6 +27,14 @@ use tracing::{debug, error};
 async fn main() -> Result<()> {
     #[cfg(target_os = "android")]
     android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Debug));
+
+    let mut lock = ProgramLock::new("iroh-one")?;
+    if lock.is_locked() {
+        println!("iroh-one is already running, stopping.");
+        return Ok(());
+    } else {
+        lock.acquire()?;
+    }
 
     let args = Args::parse();
 

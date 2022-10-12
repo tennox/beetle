@@ -32,13 +32,13 @@ function setup_xcompile_envs() {
         TARGET_TRIPLE=aarch64-apple-darwin
         TARGET_INCLUDE=${TARGET_TRIPLE}
         LIB_SUFFIX=64
-	IS_MACOS=1
+	    IS_MACOS=1
         ;;
     x86_64-apple-darwin)
         TARGET_TRIPLE=x86_64-apple-darwin
         TARGET_INCLUDE=${TARGET_TRIPLE}
         LIB_SUFFIX=64
-	IS_MACOS=1
+	    IS_MACOS=1
         ;;
     aarch64-unknown-linux-gnu)
         # Non-android targets will use the toolchain installed in $HOME/.mozbuild
@@ -92,7 +92,6 @@ function setup_xcompile_envs() {
         export SYSROOT=${MOZBUILD}/sysroot-${TARGET_INCLUDE}
         export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
         export PATH=${MOZBUILD}/clang/bin:${PATH}
-        export AR=${BUILD_WITH_NDK_DIR}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
         export LINKER=${TOOLCHAIN_CC}
 
         echo "Building for ${TARGET_TRIPLE} using MOZBUILD '${MOZBUILD}'"

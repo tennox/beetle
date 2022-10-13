@@ -16,7 +16,10 @@ pub struct ProgramLock {
 impl ProgramLock {
     /// Create a new lock for the given program. This does not yet acquire the lock.
     pub fn new(prog_name: &str) -> Result<Self> {
+        #[cfg(not(target_os = "android"))]
         let path = crate::iroh_data_path(&format!("{}.lock", prog_name))?;
+        #[cfg(target_os = "android")]
+        let path = format!("/data/local/tmp/{}.lock", prog_name).into();
         Ok(Self { path, lock: None })
     }
 

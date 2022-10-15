@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "prometheus-client"
-version = "0.18.0"
+version = "0.18.1"
 authors = ["Max Inden <mail@max-inden.de>"]
 description = "Open Metrics client library allowing users to natively instrument applications."
 homepage = "https://github.com/prometheus/client_rust"
@@ -27,7 +27,6 @@ keywords = [
 ]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/prometheus/client_rust"
-resolver = "2"
 
 [[bench]]
 name = "family"

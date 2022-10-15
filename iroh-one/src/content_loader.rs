@@ -128,6 +128,8 @@ impl ContentLoader for RacingLoader {
                 }
             });
 
+            trace!("retrieved from p2p");
+
             Ok(LoadedCid {
                 data: bytes,
                 source,
@@ -135,5 +137,9 @@ impl ContentLoader for RacingLoader {
         } else {
             Err(anyhow::anyhow!("Failed to load from p2p & http"))
         }
+    }
+
+    async fn has_cid(&self, cid: &Cid) -> Result<bool> {
+        Ok(self.rpc_client.try_store()?.has(*cid).await?)
     }
 }

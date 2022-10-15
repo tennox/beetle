@@ -788,9 +788,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.0.12"
+version = "4.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "385007cbbed899260395a4107435fead4cad80684461b3cc78238bdcb0bad58f"
+checksum = "6bf8832993da70a4c6d13c581f4463c2bdda27b9bf1c5498dc4365543abe6d6f"
 dependencies = [
  "atty",
  "bitflags",
@@ -803,9 +803,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.0.10"
+version = "4.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db342ce9fda24fb191e2ed4e102055a4d381c1086a06630174cd8da8d5d917ce"
+checksum = "c42f169caba89a7d512b5418b09864543eeb4d497416c917d7137863bd2076ad"
 dependencies = [
  "heck",
  "proc-macro-error",
@@ -830,6 +830,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d4198f73e42b4936b35b5bb248d81d2b595ecb170da0bac7655c54eedfa8da8"
 dependencies = [
  "os_str_bytes",
+]
+
+[[package]]
+name = "clap_mangen"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5d5cd261a1d5601621a7ee4870f6e7f3f1ba3fc901d867f5201b36691e7efbe"
+dependencies = [
+ "clap 4.0.15",
+ "roff",
 ]
 
 [[package]]
@@ -1985,6 +1995,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 
 [[package]]
+name = "humansize"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a866837516f34ad34fb221f3ee01fd0db75f2c2f6abeda2047dc6963fb04ad9a"
+dependencies = [
+ "libm",
+]
+
+[[package]]
 name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2228,16 +2247,41 @@ name = "iroh"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap 4.0.15",
+ "crossterm",
+ "futures",
+ "git-version",
+ "iroh",
+ "iroh-api",
+ "iroh-metrics",
+ "relative-path",
+ "tokio",
+ "tonic",
+ "tracing",
+ "trycmd",
+]
+
+[[package]]
+name = "iroh-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "async-stream",
  "async-trait",
  "bytes",
  "cid",
+ "config",
  "futures",
+ "iroh-metrics",
  "iroh-resolver",
  "iroh-rpc-client",
  "iroh-rpc-types",
+ "iroh-util",
  "libp2p",
  "mockall",
+ "relative-path",
+ "serde",
+ "tempdir",
  "tokio",
  "tracing",
 ]
@@ -2282,42 +2326,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-ctl"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-stream",
- "async-trait",
- "bytes",
- "cid",
- "clap 4.0.12",
- "config",
- "crossterm",
- "futures",
- "git-version",
- "iroh",
- "iroh-ctl",
- "iroh-metrics",
- "iroh-resolver",
- "iroh-rpc-client",
- "iroh-util",
- "libp2p",
- "multiaddr",
- "serde",
- "tokio",
- "tonic",
- "tracing",
- "trycmd",
-]
-
-[[package]]
 name = "iroh-examples"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
  "bytesize",
- "clap 4.0.12",
+ "clap 4.0.15",
  "futures",
  "indicatif",
  "iroh-car",
@@ -2339,7 +2354,7 @@ dependencies = [
  "axum-macros",
  "bytes",
  "cid",
- "clap 4.0.12",
+ "clap 4.0.15",
  "config",
  "dirs",
  "futures",
@@ -2360,9 +2375,12 @@ dependencies = [
  "iroh-store",
  "iroh-util",
  "libp2p",
+ "mime",
+ "mime_classifier",
  "mime_guess",
  "names",
  "opentelemetry",
+ "phf",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -2421,7 +2439,7 @@ dependencies = [
  "axum-macros",
  "bytes",
  "cid",
- "clap 4.0.12",
+ "clap 4.0.15",
  "config",
  "futures",
  "headers",
@@ -2455,7 +2473,7 @@ dependencies = [
  "asynchronous-codec",
  "bytes",
  "cid",
- "clap 4.0.12",
+ "clap 4.0.15",
  "config",
  "dirs",
  "futures",
@@ -2572,7 +2590,7 @@ dependencies = [
  "bincode",
  "bytes",
  "cid",
- "clap 4.0.12",
+ "clap 4.0.15",
  "futures",
  "iroh-metrics",
  "iroh-p2p",
@@ -2601,7 +2619,7 @@ dependencies = [
  "bytecheck",
  "bytes",
  "cid",
- "clap 4.0.12",
+ "clap 4.0.15",
  "config",
  "criterion",
  "ctrlc",
@@ -2634,6 +2652,7 @@ dependencies = [
  "dirs-next",
  "file-guard",
  "futures",
+ "humansize",
  "nix 0.25.0",
  "rlimit",
  "serde",
@@ -2811,6 +2830,12 @@ dependencies = [
  "cfg-if",
  "winapi",
 ]
+
+[[package]]
+name = "libm"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "292a948cd991e376cf75541fe5b97a1081d713c618b4f1b9500f8844e49eb565"
 
 [[package]]
 name = "libp2p"
@@ -3412,6 +3437,16 @@ name = "mime"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
+
+[[package]]
+name = "mime_classifier"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e817cb34c89e147fcfbb8a4e88e4c1c064c1c9fcdab80191f94b55921b3cbbd4"
+dependencies = [
+ "mime",
+ "serde",
+]
 
 [[package]]
 name = "mime_guess"
@@ -4073,6 +4108,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "phf"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "928c6535de93548188ef63bb7c4036bd415cd8f36ad25af44b9789b2ee72a48c"
+dependencies = [
+ "phf_macros",
+ "phf_shared",
+]
+
+[[package]]
+name = "phf_generator"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1181c94580fa345f50f19d738aaa39c0ed30a600d95cb2d3e23f94266f14fbf"
+dependencies = [
+ "phf_shared",
+ "rand 0.8.5",
+]
+
+[[package]]
+name = "phf_macros"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92aacdc5f16768709a569e913f7451034034178b05bdc8acda226659a3dccc66"
+dependencies = [
+ "phf_generator",
+ "phf_shared",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1fb5f6f826b772a8d4c0394209441e7d37cbbb967ae9c7e0e8134365c9ee676"
+dependencies = [
+ "siphasher",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4285,9 +4362,9 @@ dependencies = [
 
 [[package]]
 name = "prometheus-client"
-version = "0.18.0"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c473049631c233933d6286c88bbb7be30e62ec534cf99a9ae0079211f7fa603"
+checksum = "83cd1b99916654a69008fd66b4f9397fbe08e6e51dfe23d4417acf5d3b8cb87c"
 dependencies = [
  "dtoa",
  "itoa",
@@ -4721,6 +4798,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3f87b73ce11b1619a3c6332f45341e0047173771e8b8b73f87bfeefb7b56244"
 
 [[package]]
+name = "relative-path"
+version = "1.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0df32d82cedd1499386877b062ebe8721f806de80b08d183c70184ef17dd1d42"
+
+[[package]]
 name = "remove_dir_all"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4855,6 +4938,12 @@ dependencies = [
  "libc",
  "librocksdb-sys",
 ]
+
+[[package]]
+name = "roff"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b833d8d034ea094b1ea68aa6d5c740e0d04bad9d16568d08ba6f76823a114316"
 
 [[package]]
 name = "ron"
@@ -5213,6 +5302,12 @@ name = "similar"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62ac7f900db32bf3fd12e0117dd3dc4da74bc52ebaac97f39668446d89694803"
+
+[[package]]
+name = "siphasher"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bd3e3206899af3f8b12af284fafc038cc1dc2b41d1b89dd17297221c5d225de"
 
 [[package]]
 name = "sketches-ddsketch"
@@ -5585,9 +5680,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-stream"
-version = "0.1.10"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6edf2d6bc038a43d31353570e27270603f4648d18f5ed10c0e179abe43255af"
+checksum = "d660770404473ccd7bc9f8b28494a811bc18542b915c0855c51e8f419d5223ce"
 dependencies = [
  "futures-core",
  "pin-project-lite 0.2.9",
@@ -6412,6 +6507,17 @@ dependencies = [
  "curve25519-dalek 3.2.0",
  "rand_core 0.5.1",
  "zeroize",
+]
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.0.15",
+ "clap_mangen",
+ "dirs-next",
+ "iroh",
 ]
 
 [[package]]

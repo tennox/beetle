@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60.0"
 name = "clap"
-version = "4.0.12"
+version = "4.0.15"
 include = [
     "build.rs",
     "src/**/*",
@@ -367,7 +367,7 @@ optional = true
 version = "1.2"
 
 [dependencies.clap_derive]
-version = "=4.0.10"
+version = "=4.0.13"
 optional = true
 
 [dependencies.clap_lex]

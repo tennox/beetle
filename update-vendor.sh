@@ -12,6 +12,10 @@ cargo update $@
 
 cargo vendor -- third-party > .cargo/config
 
+echo "" >> .cargo/config
+echo "[alias]" >> .cargo/config
+echo 'xtask = "run --package xtask --"' >> .cargo/config
+
 echo "Before rm: `du -h -d 0 third-party`"
 
 # Remove large and useless prebuilt components.

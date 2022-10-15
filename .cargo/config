@@ -9,3 +9,6 @@ replace-with = "vendored-sources"
 
 [source.vendored-sources]
 directory = "third-party"
+
+[alias]
+xtask = "run --package xtask --"

@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.48"
 name = "cxxbridge-flags"
-version = "1.0.78"
+version = "1.0.79"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 description = "Compiler configuration of the `cxx` crate (implementation detail)"
 categories = [

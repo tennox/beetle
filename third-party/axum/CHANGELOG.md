@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - None.
 
+# 0.5.17 (20. October, 2022)
+
+- **fixed:** Annotate panicking functions with `#[track_caller]` so the error
+  message points to where the user added the invalid router, rather than
+  somewhere internally in axum ([#1248])
+- **fixed:** Make `Multipart` extractor work with `RequestBodyLimit` middleware ([#1379])
+- **added:** Add `DefaultBodyLimit::max` for changing the default body limit ([#1397])
+- **added:** Various documentation improvements
+
+[#1248]: https://github.com/tokio-rs/axum/pull/1248
+[#1379]: https://github.com/tokio-rs/axum/pull/1379
+[#1397]: https://github.com/tokio-rs/axum/pull/1397
+
 # 0.5.16 (10. September, 2022)
 
 ## Security
@@ -29,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `String`
 
   ([#1346])
+
+[#1346]: https://github.com/tokio-rs/axum/pull/1346
 
 # 0.5.15 (9. August, 2022)
 
@@ -63,7 +78,7 @@ Yanked, as it contained an accidental breaking change.
 
 # 0.5.11 (02. July, 2022)
 
-- **added:** Implement `TryFrom<http:: Method>` for `MethodFilter` and use new
+- **added:** Implement `TryFrom<http::Method>` for `MethodFilter` and use new
   `NoMatchingMethodFilter` error in case of failure ([#1130])
 - **added:** Document how to run extractors from middleware ([#1140])
 

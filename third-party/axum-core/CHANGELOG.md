@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - None.
 
+# 0.2.9 (20. October, 2022)
+
+- **added:** Add `DefaultBodyLimit::max` for changing the default body limit ([#1397])
+- **added:** Add `Error::into_inner` for converting `Error` to `BoxError` without allocating ([#1476])
+
+[#1397]: https://github.com/tokio-rs/axum/pull/1397
+[#1476]: https://github.com/tokio-rs/axum/pull/1476
+
 # 0.2.8 (10. September, 2022)
 
 - **breaking:** Added default limit to how much data `Bytes::from_request` will

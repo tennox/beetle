@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "fragile"
-version = "1.2.1"
+version = "2.0.0"
 authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
 description = "Provides wrapper types for sending non-send values to other threads."
 homepage = "https://github.com/mitsuhiko/fragile"

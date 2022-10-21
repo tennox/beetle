@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "axum"
-version = "0.5.16"
+version = "0.5.17"
 description = "Web framework that focuses on ergonomics and modularity"
 homepage = "https://github.com/tokio-rs/axum"
 readme = "README.md"
@@ -49,7 +49,7 @@ features = [
 version = "0.1.43"
 
 [dependencies.axum-core]
-version = "0.2.8"
+version = "0.2.9"
 
 [dependencies.axum-macros]
 version = "0.2.3"
@@ -134,11 +134,11 @@ version = "1"
 features = ["time"]
 
 [dependencies.tokio-tungstenite]
-version = "0.17"
+version = "0.17.2"
 optional = true
 
 [dependencies.tower]
-version = "0.4.11"
+version = "0.4.13"
 features = [
     "util",
     "make",
@@ -226,6 +226,10 @@ features = [
 ]
 
 [features]
+__private_docs = [
+    "tower/full",
+    "tower-http/full",
+]
 default = [
     "form",
     "http1",

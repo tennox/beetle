@@ -1,8 +1,10 @@
 use iroh_bitswap::BitswapEvent;
 use libp2p::{
-    autonat, dcutr, gossipsub::GossipsubEvent, identify::IdentifyEvent, kad::KademliaEvent,
-    mdns::MdnsEvent, ping::Event as PingEvent, relay,
+    autonat, dcutr, gossipsub::GossipsubEvent, identify::Event as IdentifyEvent,
+    kad::KademliaEvent, mdns::MdnsEvent, ping::Event as PingEvent, relay,
 };
+
+use super::peer_manager::PeerManagerEvent;
 
 /// Event type which is emitted from the [`NodeBehaviour`].
 #[derive(Debug)]
@@ -17,6 +19,7 @@ pub enum Event {
     RelayClient(relay::v2::client::Event),
     Dcutr(dcutr::behaviour::Event),
     Gossipsub(GossipsubEvent),
+    PeerManager(PeerManagerEvent),
 }
 
 impl From<PingEvent> for Event {
@@ -76,5 +79,11 @@ impl From<relay::v2::client::Event> for Event {
 impl From<dcutr::behaviour::Event> for Event {
     fn from(event: dcutr::behaviour::Event) -> Self {
         Event::Dcutr(event)
+    }
+}
+
+impl From<PeerManagerEvent> for Event {
+    fn from(event: PeerManagerEvent) -> Self {
+        Event::PeerManager(event)
     }
 }

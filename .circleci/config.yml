@@ -5,7 +5,7 @@ parameters:
     type: string
     default: "nightly-2022-06-23"
 
-orbs: 
+orbs:
   aws-cli: circleci/aws-cli@3.1.1
 
 executors:
@@ -172,7 +172,7 @@ commands:
           key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}-{{ epoch }}
           paths:
             - "~/.cache/sccache"
-    
+
   push-to-s3:
     parameters:
       version:
@@ -191,11 +191,11 @@ commands:
       - run:
           name: push to s3
           command: |
-              source $BASH_ENV
-              aws s3 cp <<parameters.path>>iroh-gateway s3://vorc/iroh-gateway-<<parameters.os>>-<<parameters.arch>>-${CIRCLE_SHA1::7} --no-progress
-              aws s3 cp <<parameters.path>>iroh-p2p s3://vorc/iroh-p2p-<<parameters.os>>-<<parameters.arch>>-${CIRCLE_SHA1::7} --no-progress
-              aws s3 cp <<parameters.path>>iroh-store s3://vorc/iroh-store-<<parameters.os>>-<<parameters.arch>>-${CIRCLE_SHA1::7} --no-progress
-              aws s3 cp <<parameters.path>>iroh-ctl s3://vorc/iroh-ctl-<<parameters.os>>-<<parameters.arch>>-${CIRCLE_SHA1::7} --no-progress
+            source $BASH_ENV
+            aws s3 cp <<parameters.path>>iroh-gateway s3://vorc/iroh-gateway-<<parameters.os>>-<<parameters.arch>>-${CIRCLE_SHA1::7} --no-progress
+            aws s3 cp <<parameters.path>>iroh-p2p s3://vorc/iroh-p2p-<<parameters.os>>-<<parameters.arch>>-${CIRCLE_SHA1::7} --no-progress
+            aws s3 cp <<parameters.path>>iroh-store s3://vorc/iroh-store-<<parameters.os>>-<<parameters.arch>>-${CIRCLE_SHA1::7} --no-progress
+            aws s3 cp <<parameters.path>>iroh s3://vorc/iroh-<<parameters.os>>-<<parameters.arch>>-${CIRCLE_SHA1::7} --no-progress
 
   push-to-s3-latest:
     parameters:
@@ -212,11 +212,11 @@ commands:
       - run:
           name: push to s3 latest
           command: |
-              source $BASH_ENV
-              aws s3 cp <<parameters.path>>iroh-gateway s3://vorc/iroh-gateway-<<parameters.os>>-<<parameters.arch>>-latest --no-progress
-              aws s3 cp <<parameters.path>>iroh-p2p s3://vorc/iroh-p2p-<<parameters.os>>-<<parameters.arch>>-latest --no-progress
-              aws s3 cp <<parameters.path>>iroh-store s3://vorc/iroh-store-<<parameters.os>>-<<parameters.arch>>-latest --no-progress
-              aws s3 cp <<parameters.path>>iroh-ctl s3://vorc/iroh-ctl-<<parameters.os>>-<<parameters.arch>>-latest --no-progress
+            source $BASH_ENV
+            aws s3 cp <<parameters.path>>iroh-gateway s3://vorc/iroh-gateway-<<parameters.os>>-<<parameters.arch>>-latest --no-progress
+            aws s3 cp <<parameters.path>>iroh-p2p s3://vorc/iroh-p2p-<<parameters.os>>-<<parameters.arch>>-latest --no-progress
+            aws s3 cp <<parameters.path>>iroh-store s3://vorc/iroh-store-<<parameters.os>>-<<parameters.arch>>-latest --no-progress
+            aws s3 cp <<parameters.path>>iroh s3://vorc/iroh-<<parameters.os>>-<<parameters.arch>>-latest --no-progress
 
 jobs:
   cargo_fetch:
@@ -265,7 +265,7 @@ jobs:
         type: string
         default: ""
     environment:
-      RUST_LOG: debug
+      RUST_LOG: error
     steps:
       - set-env-path
       - setup-protoc
@@ -288,7 +288,7 @@ jobs:
         type: string
         default: ""
     environment:
-      RUST_LOG: debug
+      RUST_LOG: error
     steps:
       - checkout
       - setup-env-mac
@@ -319,7 +319,7 @@ jobs:
   clippy:
     executor: docker-executor
     environment:
-      RUST_LOG: debug
+      RUST_LOG: warn
     steps:
       - set-env-path
       - setup-protoc
@@ -330,6 +330,28 @@ jobs:
       - run:
           name: Run cargo clippy (default features)
           command: cargo clippy --all --all-targets -- -D warnings
+      - save-sccache-cache
+
+  audit:
+    executor: docker-executor
+    environment:
+      RUST_LOG: warn
+    steps:
+      - set-env-path
+      - setup-protoc
+      - *restore-workspace
+      - *restore-cache
+      - setup-sccache
+      - restore-sccache-cache
+      - run:
+          name: Install cargo audit
+          command: cargo install --force cargo-audit
+      - run:
+          name: Generate lock file
+          command: cargo generate-lockfile
+      - run:
+          name: Run cargo audit (default features)
+          command: cargo audit
       - save-sccache-cache
 
   build_release_x86_64:
@@ -348,17 +370,17 @@ jobs:
           profile-name: default
       - run:
           name: build x86_64 release
-          command: cargo build --release -v
+          command: cargo build --profile ci -v
       - push-to-s3:
-          path: ./target/release/
+          path: ./target/ci/
           os: linux
           arch: amd64
       - push-to-s3-latest:
-          path: ./target/release/
+          path: ./target/ci/
           os: linux
           arch: amd64
       - save-sccache-cache
-  
+
   build_release_aarch64:
     executor: arm-executor
     steps:
@@ -375,13 +397,13 @@ jobs:
           profile-name: default
       - run:
           name: build aarch64 release
-          command: cargo build --release -v
+          command: cargo build --profile ci -v
       - push-to-s3:
-          path: ./target/release/
+          path: ./target/ci/
           os: linux
           arch: aarch64
       - push-to-s3-latest:
-          path: ./target/release/
+          path: ./target/ci/
           os: linux
           arch: aarch64
       - save-sccache-cache
@@ -403,13 +425,13 @@ jobs:
       - run:
           name: build x86_64_darwin
           no_output_timeout: 20m
-          command: cargo build --release -v
+          command: cargo build --profile ci -v
       - push-to-s3:
-          path: ./target/release/
+          path: ./target/ci/
           os: darwin
           arch: x86_64
       - push-to-s3-latest:
-          path: ./target/release/
+          path: ./target/ci/
           os: darwin
           arch: x86_64
       - run:
@@ -421,17 +443,16 @@ jobs:
       - run:
           name: build aarch64_darwin
           no_output_timeout: 20m
-          command: cargo build --release -v --target aarch64-apple-darwin
+          command: cargo build --profile ci -v --target aarch64-apple-darwin
       - push-to-s3:
-          path: ./target/aarch64-apple-darwin/release/
+          path: ./target/aarch64-apple-darwin/ci/
           os: darwin
           arch: aarch64
       - push-to-s3-latest:
-          path: ./target/aarch64-apple-darwin/release/
+          path: ./target/aarch64-apple-darwin/ci/
           os: darwin
           arch: aarch64
       - save-sccache-cache
-
 
 workflows:
   version: 2.1
@@ -443,6 +464,9 @@ workflows:
           requires:
             - cargo_fetch
       - clippy:
+          requires:
+            - cargo_fetch
+      - audit:
           requires:
             - cargo_fetch
       - test:

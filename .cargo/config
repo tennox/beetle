@@ -4,7 +4,7 @@ replace-with = "vendored-sources"
 
 [source."https://github.com/dignifiedquire/rust-libp2p"]
 git = "https://github.com/dignifiedquire/rust-libp2p"
-branch = "iroh-0-49"
+branch = "iroh-0-50"
 replace-with = "vendored-sources"
 
 [source.vendored-sources]

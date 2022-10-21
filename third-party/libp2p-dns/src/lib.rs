@@ -65,7 +65,6 @@ use libp2p_core::{
 };
 use parking_lot::Mutex;
 use smallvec::SmallVec;
-#[cfg(any(feature = "async-std", feature = "tokio"))]
 use std::io;
 use std::{
     convert::TryFrom,
@@ -607,13 +606,10 @@ mod tests {
 
             fn dial(&mut self, addr: Multiaddr) -> Result<Self::Dial, TransportError<Self::Error>> {
                 // Check that all DNS components have been resolved, i.e. replaced.
-                assert!(!addr.iter().any(|p| match p {
-                    Protocol::Dns(_)
-                    | Protocol::Dns4(_)
-                    | Protocol::Dns6(_)
-                    | Protocol::Dnsaddr(_) => true,
-                    _ => false,
-                }));
+                assert!(!addr.iter().any(|p| matches!(
+                    p,
+                    Protocol::Dns(_) | Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Dnsaddr(_)
+                )));
                 Ok(Box::pin(future::ready(Ok(()))))
             }
 

@@ -7,31 +7,32 @@ use crate::errors::InvalidThreadAccess;
 use crate::thread_id;
 use std::mem::ManuallyDrop;
 
-/// A `Fragile<T>` wraps a non sendable `T` to be safely send to other threads.
+/// A [`Fragile<T>`] wraps a non sendable `T` to be safely send to other threads.
 ///
 /// Once the value has been wrapped it can be sent to other threads but access
 /// to the value on those threads will fail.
 ///
 /// If the value needs destruction and the fragile wrapper is on another thread
-/// the destructor will panic.  Alternatively you can use `Sticky<T>` which is
-/// not going to panic but might temporarily leak the value.
+/// the destructor will panic.  Alternatively you can use
+/// [`Sticky`](crate::Sticky) which is not going to panic but might temporarily
+/// leak the value.
 pub struct Fragile<T> {
-    // ManuallyDrop is necessary because we need to move out of this `Box` without running the
+    // ManuallyDrop is necessary because we need to move out of here without running the
     // Drop code in functions like `into_inner`.
-    value: ManuallyDrop<Box<T>>,
+    value: ManuallyDrop<T>,
     thread_id: NonZeroUsize,
 }
 
 impl<T> Fragile<T> {
-    /// Creates a new `Fragile` wrapping a `value`.
+    /// Creates a new [`Fragile`] wrapping a `value`.
     ///
-    /// The value that is moved into the `Fragile` can be non `Send` and
+    /// The value that is moved into the [`Fragile`] can be non `Send` and
     /// will be anchored to the thread that created the object.  If the
     /// fragile wrapper type ends up being send from thread to thread
     /// only the original thread can interact with the value.
     pub fn new(value: T) -> Self {
         Fragile {
-            value: ManuallyDrop::new(Box::new(value)),
+            value: ManuallyDrop::new(value),
             thread_id: thread_id::get(),
         }
     }
@@ -63,14 +64,14 @@ impl<T> Fragile<T> {
 
         // SAFETY: `this` is not accessed beyond this point, and because it's in a ManuallyDrop its
         // destructor is not run.
-        *unsafe { ManuallyDrop::take(&mut this.value) }
+        unsafe { ManuallyDrop::take(&mut this.value) }
     }
 
     /// Consumes the `Fragile`, returning the wrapped value if successful.
     ///
     /// The wrapped value is returned if this is called from the same thread
     /// as the one where the original value was created, otherwise the
-    /// `Fragile` is returned as `Err(self)`.
+    /// [`Fragile`] is returned as `Err(self)`.
     pub fn try_into_inner(self) -> Result<T, Self> {
         if thread_id::get() == self.thread_id {
             Ok(self.into_inner())
@@ -84,10 +85,10 @@ impl<T> Fragile<T> {
     /// # Panics
     ///
     /// Panics if the calling thread is not the one that wrapped the value.
-    /// For a non-panicking variant, use [`try_get`](#method.try_get`).
+    /// For a non-panicking variant, use [`try_get`](Self::try_get).
     pub fn get(&self) -> &T {
         self.assert_thread();
-        &**self.value
+        &*self.value
     }
 
     /// Mutably borrows the wrapped value.
@@ -95,10 +96,10 @@ impl<T> Fragile<T> {
     /// # Panics
     ///
     /// Panics if the calling thread is not the one that wrapped the value.
-    /// For a non-panicking variant, use [`try_get_mut`](#method.try_get_mut`).
+    /// For a non-panicking variant, use [`try_get_mut`](Self::try_get_mut).
     pub fn get_mut(&mut self) -> &mut T {
         self.assert_thread();
-        &mut **self.value
+        &mut *self.value
     }
 
     /// Tries to immutably borrow the wrapped value.
@@ -106,7 +107,7 @@ impl<T> Fragile<T> {
     /// Returns `None` if the calling thread is not the one that wrapped the value.
     pub fn try_get(&self) -> Result<&T, InvalidThreadAccess> {
         if thread_id::get() == self.thread_id {
-            Ok(&**self.value)
+            Ok(&*self.value)
         } else {
             Err(InvalidThreadAccess)
         }
@@ -117,7 +118,7 @@ impl<T> Fragile<T> {
     /// Returns `None` if the calling thread is not the one that wrapped the value.
     pub fn try_get_mut(&mut self) -> Result<&mut T, InvalidThreadAccess> {
         if thread_id::get() == self.thread_id {
-            Ok(&mut **self.value)
+            Ok(&mut *self.value)
         } else {
             Err(InvalidThreadAccess)
         }
@@ -170,7 +171,7 @@ impl<T: Eq> Eq for Fragile<T> {}
 impl<T: PartialOrd> PartialOrd for Fragile<T> {
     #[inline]
     fn partial_cmp(&self, other: &Fragile<T>) -> Option<cmp::Ordering> {
-        self.get().partial_cmp(&*other.get())
+        self.get().partial_cmp(other.get())
     }
 
     #[inline]
@@ -197,7 +198,7 @@ impl<T: PartialOrd> PartialOrd for Fragile<T> {
 impl<T: Ord> Ord for Fragile<T> {
     #[inline]
     fn cmp(&self, other: &Fragile<T>) -> cmp::Ordering {
-        self.get().cmp(&*other.get())
+        self.get().cmp(other.get())
     }
 }
 

@@ -32,7 +32,7 @@ pub fn set_file_handle_times(
 }
 
 pub fn set_symlink_file_times(p: &Path, atime: FileTime, mtime: FileTime) -> io::Result<()> {
-    set_times(p, Some(atime), Some(mtime), false)
+    set_times(p, Some(atime), Some(mtime), true)
 }
 
 fn set_times(
@@ -42,6 +42,12 @@ fn set_times(
     symlink: bool,
 ) -> io::Result<()> {
     let flags = if symlink {
+        if cfg!(target_os = "emscripten") {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "emscripten does not support utimensat for symlinks",
+            ));
+        }
         libc::AT_SYMLINK_NOFOLLOW
     } else {
         0

@@ -10,13 +10,13 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
 rust-version = "1.56"
 name = "pest_generator"
-version = "2.4.0"
+version = "2.4.1"
 authors = ["Dragoș Tiselice <dragostiselice@gmail.com>"]
 description = "pest code generator"
-homepage = "https://pest-parser.github.io/"
+homepage = "https://pest.rs/"
 documentation = "https://docs.rs/pest"
 readme = "_README.md"
 keywords = [
@@ -28,11 +28,11 @@ license = "MIT/Apache-2.0"
 repository = "https://github.com/pest-parser/pest"
 
 [dependencies.pest]
-version = "2.4.0"
+version = "2.4.1"
 default-features = false
 
 [dependencies.pest_meta]
-version = "2.4.0"
+version = "2.4.1"
 
 [dependencies.proc-macro2]
 version = "1.0"

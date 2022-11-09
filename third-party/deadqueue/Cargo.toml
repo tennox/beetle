@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "deadqueue"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Michael P. Jung <michael.jung@terreon.de>"]
 description = "Dead simple async queue"
 readme = "README.md"
@@ -31,7 +31,10 @@ version = "0.3"
 
 [dependencies.tokio]
 version = "1"
-features = ["sync"]
+features = [
+    "sync",
+    "macros",
+]
 
 [dev-dependencies.tokio]
 version = "1"

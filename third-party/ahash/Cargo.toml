@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "ahash"
-version = "0.8.0"
+version = "0.8.1"
 authors = ["Tom Kaitchuck <Tom.Kaitchuck@gmail.com>"]
 build = "./build.rs"
 exclude = [
@@ -85,15 +85,15 @@ name = "map"
 path = "tests/map_tests.rs"
 harness = false
 
+[dependencies.atomic-polyfill]
+version = "1.0.1"
+optional = true
+
 [dependencies.cfg-if]
 version = "1.0"
 
 [dependencies.const-random]
 version = "0.1.12"
-optional = true
-
-[dependencies.getrandom]
-version = "0.2.3"
 optional = true
 
 [dependencies.serde]
@@ -132,18 +132,31 @@ version = "1.0.59"
 version = "0.9.4"
 
 [features]
+atomic-polyfill = [
+    "dep:atomic-polyfill",
+    "once_cell/atomic-polyfill",
+]
 compile-time-rng = ["const-random"]
 default = [
     "std",
     "runtime-rng",
 ]
+no-rng = []
 runtime-rng = ["getrandom"]
 std = []
 
+[target."cfg(any(target_arch = \"wasm32\", target_abi = \"unknown\"))".dependencies.getrandom]
+version = "0.2.7"
+features = ["js"]
+
 [target."cfg(not(all(target_arch = \"arm\", target_os = \"none\")))".dependencies.once_cell]
-version = "1.8"
+version = "1.13.1"
 features = [
     "unstable",
     "alloc",
 ]
 default-features = false
+
+[target."cfg(not(any(target_arch = \"wasm32\", target_abi = \"unknown\")))".dependencies.getrandom]
+version = "0.2.7"
+optional = true

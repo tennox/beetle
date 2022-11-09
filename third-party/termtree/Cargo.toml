@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "termtree"
-version = "0.2.4"
+version = "0.4.0"
 include = ["src/**/*", "Cargo.toml", "LICENSE*", "README.md", "examples/**/*"]
 description = "Visualize tree-like data on the command-line"
 homepage = "https://github.com/rust-cli/termtree"

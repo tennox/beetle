@@ -19,7 +19,7 @@ use iroh_util::iroh_config_path;
 use iroh_util::make_config;
 use iroh_util::lock::ProgramLock;
 #[cfg(feature = "uds-gateway")]
-use tempdir::TempDir;
+use tempfile::TempDir;
 use tokio::sync::RwLock;
 use tracing::{debug, error};
 
@@ -29,12 +29,7 @@ async fn main() -> Result<()> {
     android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Debug));
 
     let mut lock = ProgramLock::new("iroh-one")?;
-    if lock.is_locked() {
-        println!("iroh-one is already running, stopping.");
-        return Ok(());
-    } else {
-        lock.acquire()?;
-    }
+    lock.acquire_or_exit();
 
     let args = Args::parse();
 
@@ -132,7 +127,7 @@ async fn main() -> Result<()> {
 
     #[cfg(feature = "uds-gateway")]
     let uds_server_task = {
-        let mut path = TempDir::new("iroh")?.path().join("ipfsd.http");
+        let mut path = TempDir::new()?.path().join("ipfsd.http");
         if let Some(uds_path) = config.gateway_uds_path {
             path = uds_path;
         } else {

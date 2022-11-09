@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.59"
 name = "async-global-executor"
-version = "2.3.0"
+version = "2.3.1"
 authors = ["Marc-Antoine Perennou <Marc-Antoine@Perennou.com>"]
 description = "A global executor built on top of async-executor and async-io"
 homepage = "https://github.com/Keruspe/async-global-executor"
@@ -47,7 +47,7 @@ optional = true
 version = "^2.5"
 
 [dependencies.blocking]
-version = "^1.0"
+version = "^1.2"
 
 [dependencies.futures-lite]
 version = "^1.0"

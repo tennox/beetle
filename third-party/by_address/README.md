@@ -29,6 +29,16 @@ projects.
 
 ## Release notes
 
+### Version 1.1.0
+
+* New `ByThinAddress` type.
+* Implement the `Display` trait.
+* Custom implementation of `Debug` that includess the pointer address.
+
+### Version 1.0.4
+
+* Improve hashing of fat pointers
+
 ### Version 1.0.3
 
 * Implement `From<T>` for `ByAddress<T>`

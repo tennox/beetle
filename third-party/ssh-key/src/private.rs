@@ -115,14 +115,19 @@ mod rsa;
 #[cfg(feature = "alloc")]
 mod sk;
 
-pub use self::ed25519::{Ed25519Keypair, Ed25519PrivateKey};
-pub use self::keypair::KeypairData;
+pub use self::{
+    ed25519::{Ed25519Keypair, Ed25519PrivateKey},
+    keypair::KeypairData,
+};
 
 #[cfg(feature = "alloc")]
-pub use self::{
-    dsa::{DsaKeypair, DsaPrivateKey},
-    rsa::{RsaKeypair, RsaPrivateKey},
-    sk::SkEd25519,
+pub use crate::{
+    private::{
+        dsa::{DsaKeypair, DsaPrivateKey},
+        rsa::{RsaKeypair, RsaPrivateKey},
+        sk::SkEd25519,
+    },
+    SshSig,
 };
 
 #[cfg(feature = "ecdsa")]
@@ -131,26 +136,18 @@ pub use self::ecdsa::{EcdsaKeypair, EcdsaPrivateKey};
 #[cfg(all(feature = "alloc", feature = "ecdsa"))]
 pub use self::sk::SkEcdsaSha2NistP256;
 
-use crate::{
-    checked::CheckedSum,
-    decode::Decode,
-    encode::Encode,
-    pem::{self, LineEnding, PemLabel},
-    public,
-    reader::Reader,
-    writer::Writer,
-    Algorithm, Cipher, Error, Kdf, PublicKey, Result,
-};
+use crate::{public, Algorithm, Cipher, Error, Fingerprint, HashAlg, Kdf, PublicKey, Result};
 use core::str;
+use encoding::{
+    pem::{LineEnding, PemLabel},
+    CheckedSum, Decode, DecodePem, Encode, EncodePem, Reader, Writer,
+};
 
 #[cfg(feature = "alloc")]
 use {
     alloc::{string::String, vec::Vec},
     zeroize::Zeroizing,
 };
-
-#[cfg(feature = "fingerprint")]
-use crate::{Fingerprint, HashAlg};
 
 #[cfg(feature = "rand_core")]
 use rand_core::{CryptoRng, RngCore};
@@ -168,7 +165,7 @@ use subtle::{Choice, ConstantTimeEq};
 const CONVERSION_ERROR_MSG: &str = "SSH private key conversion error";
 
 /// Default key size to use for RSA keys in bits.
-#[cfg(feature = "rsa")]
+#[cfg(all(feature = "rand_core", feature = "rsa"))]
 const DEFAULT_RSA_KEY_SIZE: usize = 4096;
 
 /// Maximum supported block size.
@@ -178,9 +175,6 @@ const MAX_BLOCK_SIZE: usize = 16;
 
 /// Padding bytes to use.
 const PADDING_BYTES: [u8; MAX_BLOCK_SIZE - 1] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-
-/// Line width used by the PEM encoding of OpenSSH private keys.
-const PEM_LINE_WIDTH: usize = 70;
 
 /// Unix file permissions for SSH private keys.
 #[cfg(all(unix, feature = "std"))]
@@ -231,18 +225,15 @@ impl PrivateKey {
     /// ```text
     /// -----BEGIN OPENSSH PRIVATE KEY-----
     /// ```
-    pub fn from_openssh(input: impl AsRef<[u8]>) -> Result<Self> {
-        let mut reader = pem::Decoder::new_wrapped(input.as_ref(), PEM_LINE_WIDTH)?;
-        Self::validate_pem_label(reader.type_label())?;
-        let private_key = Self::decode(&mut reader)?;
-        reader.finish(private_key)
+    pub fn from_openssh(pem: impl AsRef<[u8]>) -> Result<Self> {
+        Self::decode_pem(pem)
     }
 
     /// Parse a raw binary SSH private key.
     pub fn from_bytes(mut bytes: &[u8]) -> Result<Self> {
         let reader = &mut bytes;
         let private_key = Self::decode(reader)?;
-        reader.finish(private_key)
+        Ok(reader.finish(private_key)?)
     }
 
     /// Encode OpenSSH-formatted (PEM) private key.
@@ -251,12 +242,7 @@ impl PrivateKey {
         line_ending: LineEnding,
         out: &'o mut [u8],
     ) -> Result<&'o str> {
-        let mut writer =
-            pem::Encoder::new_wrapped(Self::PEM_LABEL, PEM_LINE_WIDTH, line_ending, out)?;
-
-        self.encode(&mut writer)?;
-        let encoded_len = writer.finish()?;
-        Ok(str::from_utf8(&out[..encoded_len])?)
+        self.encode_pem(line_ending, out)
     }
 
     /// Encode an OpenSSH-formatted PEM private key, allocating a
@@ -264,17 +250,7 @@ impl PrivateKey {
     #[cfg(feature = "alloc")]
     #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     pub fn to_openssh(&self, line_ending: LineEnding) -> Result<Zeroizing<String>> {
-        let encoded_len = pem::encapsulated_len_wrapped(
-            Self::PEM_LABEL,
-            PEM_LINE_WIDTH,
-            line_ending,
-            self.encoded_len()?,
-        )?;
-
-        let mut buf = vec![0u8; encoded_len];
-        let actual_len = self.encode_openssh(line_ending, &mut buf)?.len();
-        buf.truncate(actual_len);
-        Ok(Zeroizing::new(String::from_utf8(buf)?))
+        self.encode_pem_string(line_ending).map(Zeroizing::new)
     }
 
     /// Serialize SSH private key as raw bytes.
@@ -284,6 +260,24 @@ impl PrivateKey {
         let mut private_key_bytes = Vec::with_capacity(self.encoded_len()?);
         self.encode(&mut private_key_bytes)?;
         Ok(Zeroizing::new(private_key_bytes))
+    }
+
+    /// Sign the given message using this private key, returning an [`SshSig`].
+    ///
+    /// These signatures can be produced using `ssh-keygen -Y sign`. They're
+    /// encoded as PEM and begin with the following:
+    ///
+    /// ```text
+    /// -----BEGIN SSH SIGNATURE-----
+    /// ```
+    ///
+    /// See [PROTOCOL.sshsig] for more information.
+    ///
+    /// [PROTOCOL.sshsig]: https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL.sshsig?annotate=HEAD
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+    pub fn sign(&self, namespace: &str, hash_alg: HashAlg, msg: &[u8]) -> Result<SshSig> {
+        SshSig::sign(self, namespace, hash_alg, msg)
     }
 
     /// Read private key from an OpenSSH-formatted PEM file.
@@ -412,8 +406,6 @@ impl PrivateKey {
     /// Compute key fingerprint.
     ///
     /// Use [`Default::default()`] to use the default hash function (SHA-256).
-    #[cfg(feature = "fingerprint")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "fingerprint")))]
     pub fn fingerprint(&self, hash_alg: HashAlg) -> Fingerprint {
         self.public_key.fingerprint(hash_alg)
     }
@@ -452,7 +444,9 @@ impl PrivateKey {
     pub fn random(mut rng: impl CryptoRng + RngCore, algorithm: Algorithm) -> Result<Self> {
         let checkint = rng.next_u32();
         let key_data = match algorithm {
-            #[cfg(feature = "p256")]
+            #[cfg(feature = "dsa")]
+            Algorithm::Dsa => KeypairData::from(DsaKeypair::random(rng)?),
+            #[cfg(any(feature = "p256", feature = "p384"))]
             Algorithm::Ecdsa { curve } => KeypairData::from(EcdsaKeypair::random(rng, curve)?),
             #[cfg(feature = "ed25519")]
             Algorithm::Ed25519 => KeypairData::from(Ed25519Keypair::random(rng)),
@@ -515,7 +509,7 @@ impl PrivateKey {
 
         // Ensure input data is padding-aligned
         if reader.remaining_len().checked_rem(block_size) != Some(0) {
-            return Err(Error::Length);
+            return Err(encoding::Error::Length.into());
         }
 
         let checkint1 = u32::decode(reader)?;
@@ -538,7 +532,7 @@ impl PrivateKey {
         let padding_len = reader.remaining_len();
 
         if padding_len >= block_size {
-            return Err(Error::Length);
+            return Err(encoding::Error::Length.into());
         }
 
         if padding_len != 0 {
@@ -588,7 +582,7 @@ impl PrivateKey {
     /// and padded using the padding size for the given cipher.
     fn encoded_privatekey_comment_pair_len(&self, cipher: Cipher) -> Result<usize> {
         let len = self.unpadded_privatekey_comment_pair_len()?;
-        [len, cipher.padding_len(len)].checked_sum()
+        Ok([len, cipher.padding_len(len)].checked_sum()?)
     }
 
     /// Get the length of this private key when encoded with the given comment.
@@ -601,16 +595,18 @@ impl PrivateKey {
             return Err(Error::Encrypted);
         }
 
-        [
+        Ok([
             8, // 2 x uint32 checkints,
             self.key_data.encoded_len()?,
             self.comment().encoded_len()?,
         ]
-        .checked_sum()
+        .checked_sum()?)
     }
 }
 
 impl Decode for PrivateKey {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         let mut auth_magic = [0u8; Self::AUTH_MAGIC.len()];
         reader.read(&mut auth_magic)?;
@@ -625,10 +621,10 @@ impl Decode for PrivateKey {
 
         // TODO(tarcieri): support more than one key?
         if nkeys != 1 {
-            return Err(Error::Length);
+            return Err(encoding::Error::Length.into());
         }
 
-        let public_key = reader.read_nested(public::KeyData::decode)?;
+        let public_key = reader.read_prefixed(public::KeyData::decode)?;
 
         // Handle encrypted private key
         #[cfg(not(feature = "alloc"))]
@@ -645,7 +641,7 @@ impl Decode for PrivateKey {
             }
 
             if !reader.is_finished() {
-                return Err(Error::Length);
+                return Err(encoding::Error::Length.into());
             }
 
             return Ok(Self {
@@ -662,31 +658,31 @@ impl Decode for PrivateKey {
             return Err(Error::Crypto);
         }
 
-        reader.read_nested(|reader| {
+        reader.read_prefixed(|reader| {
             Self::decode_privatekey_comment_pair(reader, public_key, cipher.block_size())
         })
     }
 }
 
 impl Encode for PrivateKey {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
         let private_key_len = if self.is_encrypted() {
-            self.key_data.encoded_len()?
+            self.key_data.encoded_len_prefixed()?
         } else {
-            self.encoded_privatekey_comment_pair_len(Cipher::None)?
+            [4, self.encoded_privatekey_comment_pair_len(Cipher::None)?].checked_sum()?
         };
 
-        [
+        Ok([
             Self::AUTH_MAGIC.len(),
             self.cipher.encoded_len()?,
             self.kdf.encoded_len()?,
             4, // number of keys (uint32)
-            4, // public key length prefix (uint32)
-            self.public_key.key_data().encoded_len()?,
-            4, // private key length prefix (uint32)
+            self.public_key.key_data().encoded_len_prefixed()?,
             private_key_len,
         ]
-        .checked_sum()
+        .checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
@@ -698,11 +694,11 @@ impl Encode for PrivateKey {
         1usize.encode(writer)?;
 
         // Encode public key
-        self.public_key.key_data().encode_nested(writer)?;
+        self.public_key.key_data().encode_prefixed(writer)?;
 
         // Encode private key
         if self.is_encrypted() {
-            self.key_data.encode_nested(writer)?;
+            self.key_data.encode_prefixed(writer)?;
         } else {
             self.encoded_privatekey_comment_pair_len(Cipher::None)?
                 .encode(writer)?;

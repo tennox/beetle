@@ -1,17 +1,15 @@
 //! Rivest–Shamir–Adleman (RSA) private keys.
 
-use crate::{
-    checked::CheckedSum, decode::Decode, encode::Encode, public::RsaPublicKey, reader::Reader,
-    writer::Writer, MPInt, Result,
-};
+use crate::{public::RsaPublicKey, Error, MPInt, Result};
 use core::fmt;
+use encoding::{CheckedSum, Decode, Encode, Reader, Writer};
 use zeroize::Zeroize;
 
 #[cfg(feature = "rsa")]
 use {
-    crate::Error,
     rand_core::{CryptoRng, RngCore},
-    rsa::PublicKeyParts,
+    rsa::{pkcs1v15, PublicKeyParts},
+    sha2::{digest::const_oid::AssociatedOid, Digest},
 };
 
 #[cfg(feature = "subtle")]
@@ -35,6 +33,8 @@ pub struct RsaPrivateKey {
 }
 
 impl Decode for RsaPrivateKey {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         let d = MPInt::decode(reader)?;
         let iqmp = MPInt::decode(reader)?;
@@ -45,21 +45,24 @@ impl Decode for RsaPrivateKey {
 }
 
 impl Encode for RsaPrivateKey {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        [
+        Ok([
             self.d.encoded_len()?,
             self.iqmp.encoded_len()?,
             self.p.encoded_len()?,
             self.q.encoded_len()?,
         ]
-        .checked_sum()
+        .checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
         self.d.encode(writer)?;
         self.iqmp.encode(writer)?;
         self.p.encode(writer)?;
-        self.q.encode(writer)
+        self.q.encode(writer)?;
+        Ok(())
     }
 }
 
@@ -124,6 +127,8 @@ impl RsaKeypair {
 }
 
 impl Decode for RsaKeypair {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         let n = MPInt::decode(reader)?;
         let e = MPInt::decode(reader)?;
@@ -134,13 +139,15 @@ impl Decode for RsaKeypair {
 }
 
 impl Encode for RsaKeypair {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        [
+        Ok([
             self.public.n.encoded_len()?,
             self.public.e.encoded_len()?,
             self.private.encoded_len()?,
         ]
-        .checked_sum()
+        .checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
@@ -194,7 +201,7 @@ impl TryFrom<&RsaKeypair> for rsa::RsaPrivateKey {
                 rsa::BigUint::try_from(&key.private.p)?,
                 rsa::BigUint::try_from(&key.private.p)?,
             ],
-        );
+        )?;
 
         if ret.size().saturating_mul(8) >= RsaKeypair::MIN_KEY_SIZE {
             Ok(ret)
@@ -239,6 +246,19 @@ impl TryFrom<&rsa::RsaPrivateKey> for RsaKeypair {
         };
 
         Ok(RsaKeypair { public, private })
+    }
+}
+
+#[cfg(feature = "rsa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rsa")))]
+impl<D> TryFrom<&RsaKeypair> for pkcs1v15::SigningKey<D>
+where
+    D: Digest + AssociatedOid,
+{
+    type Error = Error;
+
+    fn try_from(keypair: &RsaKeypair) -> Result<pkcs1v15::SigningKey<D>> {
+        Ok(pkcs1v15::SigningKey::new_with_prefix(keypair.try_into()?))
     }
 }
 

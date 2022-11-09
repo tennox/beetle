@@ -1,11 +1,12 @@
+use crate::error::map_service_error;
 use anyhow::Result;
-use async_trait::async_trait;
 use iroh_rpc_client::{Lookup, P2pClient};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
 #[cfg(feature = "testing")]
 use mockall::automock;
+use std::collections::HashMap;
 
-pub struct ClientP2p {
+pub struct P2p {
     client: P2pClient,
 }
 
@@ -15,24 +16,19 @@ pub enum PeerIdOrAddr {
     Multiaddr(Multiaddr),
 }
 
-impl ClientP2p {
+#[cfg_attr(feature = "testing", automock)]
+#[cfg_attr(feature = "testing", allow(dead_code))]
+impl P2p {
     pub fn new(client: P2pClient) -> Self {
         Self { client }
     }
-}
 
-#[cfg_attr(feature = "testing", automock)]
-#[async_trait]
-pub trait P2p: Sync {
-    async fn lookup_local(&self) -> Result<Lookup>;
-    async fn lookup(&self, addr: &PeerIdOrAddr) -> Result<Lookup>;
-    async fn connect(&self, addr: &PeerIdOrAddr) -> Result<()>;
-}
-
-#[async_trait]
-impl P2p for ClientP2p {
-    async fn lookup_local(&self) -> Result<Lookup> {
-        let (_, listen_addrs) = self.client.get_listening_addrs().await?;
+    pub async fn lookup_local(&self) -> Result<Lookup> {
+        let (_, listen_addrs) = self
+            .client
+            .get_listening_addrs()
+            .await
+            .map_err(|e| map_service_error("p2p", e))?;
         Ok(Lookup {
             peer_id: self.client.local_peer_id().await?,
             listen_addrs,
@@ -43,7 +39,7 @@ impl P2p for ClientP2p {
         })
     }
 
-    async fn lookup(&self, addr: &PeerIdOrAddr) -> Result<Lookup> {
+    pub async fn lookup(&self, addr: &PeerIdOrAddr) -> Result<Lookup> {
         match addr {
             PeerIdOrAddr::PeerId(peer_id) => self.client.lookup(*peer_id, None).await,
             PeerIdOrAddr::Multiaddr(addr) => {
@@ -51,9 +47,10 @@ impl P2p for ClientP2p {
                 self.client.lookup(peer_id, Some(addr.clone())).await
             }
         }
+        .map_err(|e| map_service_error("p2p", e))
     }
 
-    async fn connect(&self, addr: &PeerIdOrAddr) -> Result<()> {
+    pub async fn connect(&self, addr: &PeerIdOrAddr) -> Result<()> {
         match addr {
             PeerIdOrAddr::PeerId(peer_id) => self.client.connect(*peer_id, vec![]).await,
             PeerIdOrAddr::Multiaddr(addr) => {
@@ -61,6 +58,14 @@ impl P2p for ClientP2p {
                 self.client.connect(peer_id, vec![addr.clone()]).await
             }
         }
+        .map_err(|e| map_service_error("p2p", e))
+    }
+
+    pub async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>> {
+        self.client
+            .get_peers()
+            .await
+            .map_err(|e| map_service_error("p2p", e))
     }
 }
 

@@ -7,12 +7,12 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use anyhow::{anyhow, bail, ensure, Context as _, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
 use cid::multihash::{Code, MultihashDigest};
 use cid::Cid;
-use futures::{Future, Stream};
+use futures::{Future, Stream, TryStreamExt};
 use iroh_metrics::inc;
 use iroh_rpc_client::Client;
 use libipld::codec::Encode;
@@ -22,7 +22,7 @@ use libipld::{Ipld, IpldCodec};
 use tokio::io::{AsyncRead, AsyncSeek};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, trace, warn};
 
 use iroh_metrics::{
     core::{MObserver, MRecorder},
@@ -33,7 +33,7 @@ use iroh_metrics::{
 
 use crate::codecs::Codec;
 use crate::unixfs::{
-    poll_read_buf_at_pos, DataType, UnixfsChildStream, UnixfsContentReader, UnixfsNode,
+    poll_read_buf_at_pos, DataType, Link, UnixfsChildStream, UnixfsContentReader, UnixfsNode,
 };
 
 pub const IROH_STORE: &str = "iroh-store";
@@ -766,7 +766,6 @@ impl ContentLoader for Client {
 
     async fn load_cid(&self, cid: &Cid, ctx: &LoaderContext) -> Result<LoadedCid> {
         trace!("{:?} loading {}", ctx.id(), cid);
-
         // TODO: better strategy
 
         let cid = *cid;
@@ -797,8 +796,8 @@ impl ContentLoader for Client {
 
         // trigger storage in the background
         let clone = bytes.clone();
-        let store = self.store.as_ref().cloned();
-        let p2p = self.try_p2p()?.clone();
+        let store = self.try_store();
+        let p2p = self.try_p2p()?;
 
         tokio::spawn(async move {
             let clone2 = clone.clone();
@@ -809,7 +808,7 @@ impl ContentLoader for Client {
 
             let len = clone.len();
             let links_len = links.len();
-            if let Some(store_rpc) = store.as_ref() {
+            if let Ok(store_rpc) = store {
                 match store_rpc.put(cid, clone.clone(), links).await {
                     Ok(_) => {
                         debug!("stored {} ({}bytes, {}links)", cid, len, links_len);
@@ -851,11 +850,11 @@ impl<T: ContentLoader> Resolver<T> {
                 let loader = loader_thread.clone();
 
                 tokio::task::spawn(async move {
-                    error!("stopping session {}", session);
+                    debug!("stopping session {}", session);
                     if let Err(err) = loader.stop_session(session).await {
                         warn!("failed to stop session {}: {:?}", session, err);
                     }
-                    error!("stopping session {} done", session);
+                    debug!("stopping session {} done", session);
                 });
             }
         });
@@ -890,19 +889,32 @@ impl<T: ContentLoader> Resolver<T> {
             loop {
                 if let Some((current_output_path, current_out)) = blocks.pop_front() {
                     let current = current_out?;
-                    let links = current.named_links()?;
+                    if !current.is_dir() {
+                        yield (current_output_path, current);
+                        continue
+                    }
+
+                    // TODO(ramfox): we may want to just keep the stream and iterate over the links
+                    // that way, rather than gathering and then chunking again
+                    let links: Result<Vec<Link>> = current
+                        .unixfs_read_dir(&this, OutMetrics::default())?
+                        .expect("already know this is a directory")
+                        .try_collect()
+                        .await;
+                    let links = links?;
                     // TODO: configurable limit
                     for link_chunk in links.chunks(8) {
                         let next = futures::future::join_all(
-                            link_chunk.iter().map(|(link_name, link)| {
+                            link_chunk.iter().map(|link| {
                                 let this = this.clone();
                                 let mut this_path = current_output_path.clone();
-                                match link_name {
-                                    None => this_path.push(link.to_string()),
+                                let name = link.name.clone();
+                                match name {
+                                    None => this_path.push(link.cid.to_string()),
                                     Some(p) =>  this_path.push(p),
                                 };
                                 async move {
-                                    (this_path, this.resolve(Path::from_cid(*link)).await)
+                                    (this_path, this.resolve(Path::from_cid(link.cid)).await)
                                 }
                             })
                         ).await;
@@ -1030,13 +1042,16 @@ impl<T: ContentLoader> Resolver<T> {
                 self.resolve_dag_pb_or_unixfs(path, root_cid, loaded_cid, ctx)
                     .await
             }
-            Codec::DagCbor => self.resolve_dag_cbor(path, root_cid, loaded_cid, ctx).await,
-            Codec::DagJson => self.resolve_dag_json(path, root_cid, loaded_cid, ctx).await,
-            Codec::Raw => self.resolve_raw(path, root_cid, loaded_cid, ctx).await,
+            Codec::DagCbor | Codec::DagJson | Codec::Raw => {
+                self.resolve_ipld(path, root_cid, loaded_cid, ctx).await
+            }
             _ => bail!("unsupported codec {:?}", codec),
         }
     }
 
+    // TODO(ramfox): when get the cid of the next link, we should
+    // check the codec, and possibly resolve as ipld, allowing us to bridge
+    // between unixfs & ipld data (going one way)
     async fn inner_resolve(
         &self,
         current: &mut UnixfsNode,
@@ -1089,7 +1104,7 @@ impl<T: ContentLoader> Resolver<T> {
             let mut current = node;
             let mut resolved_path = vec![cid];
 
-            for part in tail {
+            for part in tail.iter().filter(|s| !s.is_empty()) {
                 self.inner_resolve(&mut current, &mut resolved_path, part, &mut ctx)
                     .await?;
             }
@@ -1119,12 +1134,12 @@ impl<T: ContentLoader> Resolver<T> {
                 content: OutContent::Unixfs(current),
             })
         } else {
-            self.resolve_dag_pb(root_path, cid, loaded_cid, ctx).await
+            self.resolve_ipld(root_path, cid, loaded_cid, ctx).await
         }
     }
 
     #[tracing::instrument(skip(self, loaded_cid))]
-    async fn resolve_dag_pb(
+    async fn resolve_ipld(
         &self,
         root_path: Path,
         cid: Cid,
@@ -1132,18 +1147,13 @@ impl<T: ContentLoader> Resolver<T> {
         mut ctx: LoaderContext,
     ) -> Result<Out> {
         trace!("{:?} resolving {} for {}", ctx.id(), cid, root_path);
-        let ipld: libipld::Ipld = libipld::IpldCodec::DagPb
+        let codec: libipld::IpldCodec = cid.codec().try_into()?;
+        let ipld: libipld::Ipld = codec
             .decode(&loaded_cid.data)
-            .map_err(|e| anyhow!("invalid dag cbor: {:?}", e))?;
+            .map_err(|e| anyhow!("invalid {:?}: {:?}", codec, e))?;
 
-        let out = self
-            .resolve_ipld(
-                cid,
-                libipld::IpldCodec::DagPb,
-                ipld,
-                &root_path.tail,
-                &mut ctx,
-            )
+        let (codec, out) = self
+            .resolve_ipld_path(cid, codec, ipld, &root_path.tail, &mut ctx)
             .await?;
 
         // reencode if we only return part of the original
@@ -1151,14 +1161,23 @@ impl<T: ContentLoader> Resolver<T> {
             loaded_cid.data
         } else {
             let mut bytes = Vec::new();
-            out.encode(libipld::IpldCodec::DagCbor, &mut bytes)?;
+            out.encode(codec, &mut bytes)?;
             bytes.into()
         };
 
+        let size = bytes.len() as u64;
+
+        let (typ, content) = match codec {
+            IpldCodec::Raw => (OutType::Raw, OutContent::Raw(out, bytes)),
+            IpldCodec::DagCbor => (OutType::DagCbor, OutContent::DagCbor(out, bytes)),
+            IpldCodec::DagJson => (OutType::DagJson, OutContent::DagJson(out, bytes)),
+            IpldCodec::DagPb => (OutType::DagPb, OutContent::DagPb(out, bytes)),
+        };
+
         let metadata = Metadata {
             path: root_path,
-            size: Some(bytes.len() as u64),
-            typ: OutType::DagPb,
+            size: Some(size),
+            typ,
             unixfs_type: None,
             resolved_path: vec![cid],
             source: loaded_cid.source,
@@ -1166,182 +1185,94 @@ impl<T: ContentLoader> Resolver<T> {
         Ok(Out {
             metadata,
             context: ctx,
-            content: OutContent::DagPb(out, bytes),
-        })
-    }
-
-    #[tracing::instrument(skip(self, loaded_cid))]
-    async fn resolve_dag_cbor(
-        &self,
-        root_path: Path,
-        cid: Cid,
-        loaded_cid: LoadedCid,
-        mut ctx: LoaderContext,
-    ) -> Result<Out> {
-        trace!("{:?} resolving {} for {}", ctx.id(), cid, root_path);
-        let ipld: libipld::Ipld = libipld::IpldCodec::DagCbor
-            .decode(&loaded_cid.data)
-            .map_err(|e| anyhow!("invalid dag cbor: {:?}", e))?;
-
-        let out = self
-            .resolve_ipld(
-                cid,
-                libipld::IpldCodec::DagCbor,
-                ipld,
-                &root_path.tail,
-                &mut ctx,
-            )
-            .await?;
-
-        // reencode if we only return part of the original
-        let bytes = if root_path.tail.is_empty() {
-            loaded_cid.data
-        } else {
-            let mut bytes = Vec::new();
-            out.encode(libipld::IpldCodec::DagCbor, &mut bytes)?;
-            bytes.into()
-        };
-
-        let metadata = Metadata {
-            path: root_path,
-            size: Some(bytes.len() as u64),
-            typ: OutType::DagCbor,
-            unixfs_type: None,
-            resolved_path: vec![cid],
-            source: loaded_cid.source,
-        };
-        Ok(Out {
-            metadata,
-            context: ctx,
-            content: OutContent::DagCbor(out, bytes),
-        })
-    }
-
-    #[tracing::instrument(skip(self, loaded_cid))]
-    async fn resolve_dag_json(
-        &self,
-        root_path: Path,
-        cid: Cid,
-        loaded_cid: LoadedCid,
-        mut ctx: LoaderContext,
-    ) -> Result<Out> {
-        trace!("{:?} resolving {} for {}", ctx.id(), cid, root_path);
-        let ipld: libipld::Ipld = libipld::IpldCodec::DagJson
-            .decode(&loaded_cid.data)
-            .map_err(|e| anyhow!("invalid dag json: {:?}", e))?;
-
-        let out = self
-            .resolve_ipld(
-                cid,
-                libipld::IpldCodec::DagJson,
-                ipld,
-                &root_path.tail,
-                &mut ctx,
-            )
-            .await?;
-
-        // reencode if we only return part of the original
-        let bytes = if root_path.tail.is_empty() {
-            loaded_cid.data
-        } else {
-            let mut bytes = Vec::new();
-            out.encode(libipld::IpldCodec::DagJson, &mut bytes)?;
-            bytes.into()
-        };
-
-        let metadata = Metadata {
-            path: root_path,
-            size: Some(bytes.len() as u64),
-            typ: OutType::DagJson,
-            unixfs_type: None,
-            resolved_path: vec![cid],
-            source: loaded_cid.source,
-        };
-        Ok(Out {
-            metadata,
-            context: ctx,
-            content: OutContent::DagJson(out, bytes),
-        })
-    }
-
-    #[tracing::instrument(skip(self, loaded_cid))]
-    async fn resolve_raw(
-        &self,
-        root_path: Path,
-        cid: Cid,
-        loaded_cid: LoadedCid,
-        mut ctx: LoaderContext,
-    ) -> Result<Out> {
-        trace!("{:?} resolving {} for {}", ctx.id(), cid, root_path);
-        let ipld: libipld::Ipld = libipld::IpldCodec::Raw
-            .decode(&loaded_cid.data)
-            .map_err(|e| anyhow!("invalid raw: {:?}", e))?;
-
-        let out = self
-            .resolve_ipld(
-                cid,
-                libipld::IpldCodec::Raw,
-                ipld,
-                &root_path.tail,
-                &mut ctx,
-            )
-            .await?;
-
-        let metadata = Metadata {
-            path: root_path,
-            size: Some(loaded_cid.data.len() as u64),
-            typ: OutType::Raw,
-            unixfs_type: None,
-            resolved_path: vec![cid],
-            source: loaded_cid.source,
-        };
-        Ok(Out {
-            metadata,
-            context: ctx,
-            content: OutContent::Raw(out, loaded_cid.data),
+            content,
         })
     }
 
     #[tracing::instrument(skip(self, root))]
-    async fn resolve_ipld(
+    async fn resolve_ipld_path(
         &self,
         _cid: Cid,
         codec: libipld::IpldCodec,
         root: Ipld,
         path: &[String],
         ctx: &mut LoaderContext,
-    ) -> Result<Ipld> {
-        let mut root = root;
+    ) -> Result<(IpldCodec, Ipld)> {
         let mut current = root;
+        let mut codec = codec;
 
-        for part in path {
+        for part in path.iter().filter(|s| !s.is_empty()) {
             if let libipld::Ipld::Link(c) = current {
-                let new_codec: libipld::IpldCodec = c.codec().try_into()?;
-                ensure!(
-                    new_codec == codec,
-                    "can only resolve the same codec {:?} != {:?}",
-                    new_codec,
-                    codec
-                );
-
-                // resolve link and update if we have encountered a link
-                let loaded_cid = self.load_cid(&c, ctx).await?;
-                root = codec
-                    .decode(&loaded_cid.data)
-                    .map_err(|e| anyhow!("invalid dag json: {:?}", e))?;
-                current = root;
+                (codec, current) = self.load_ipld_link(c, ctx).await?;
             }
-
-            let index: libipld::ipld::IpldIndex = if let Ok(i) = part.parse::<usize>() {
-                i.into()
+            if codec == IpldCodec::DagPb {
+                current = self.get_dagpb_link(current, part)?;
             } else {
-                part.clone().into()
-            };
-
-            current = current.take(index)?;
+                let index: libipld::ipld::IpldIndex = if let Ok(i) = part.parse::<usize>() {
+                    i.into()
+                } else {
+                    part.clone().into()
+                };
+                current = current.take(index).map_err(|_| {
+                    anyhow!(
+                        "IPLD resolve error: Couldn't find part {} in path '{}'",
+                        part,
+                        path.join("/")
+                    )
+                })?;
+            }
+        }
+        if let libipld::Ipld::Link(c) = current {
+            (codec, current) = self.load_ipld_link(c, ctx).await?;
         }
 
-        Ok(current)
+        Ok((codec, current))
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn load_ipld_link(&self, cid: Cid, ctx: &mut LoaderContext) -> Result<(IpldCodec, Ipld)> {
+        let codec: libipld::IpldCodec = cid.codec().try_into()?;
+
+        // resolve link and update if we have encountered a link
+        let loaded_cid = self.load_cid(&cid, ctx).await?;
+
+        let ipld: Ipld = codec
+            .decode(&loaded_cid.data)
+            .map_err(|e| anyhow!("invalid {:?}: {:?}", codec, e))?;
+        Ok((codec, ipld))
+    }
+
+    #[tracing::instrument(skip(self, name))]
+    fn get_dagpb_link<I: Into<String>>(&self, ipld: Ipld, name: I) -> Result<Ipld> {
+        let name = name.into();
+        let links = ipld
+            .take("Links")
+            .map_err(|_| anyhow!("Expected the DagPb node to have a list of links."))?;
+        let mut links_iter = links.iter();
+
+        // first iteration is the link list itself
+        let _ = links_iter
+            .next()
+            .ok_or_else(|| anyhow!("expected DagPb links to exist"));
+
+        for dagpb_link in links_iter {
+            match dagpb_link
+                .clone()
+                .take("Name")
+                .map_err(|_| anyhow!("Expected the Dagpb link to have a 'Name' field"))?
+            {
+                libipld::Ipld::String(n) => {
+                    if n == name {
+                        let link = dagpb_link.clone().take("Hash").map_err(|_| {
+                            anyhow!("Expected the DagPb link to have a 'Hash' field")
+                        })?;
+                        return Ok(link);
+                    }
+                }
+                _ => return Err(anyhow!("expected DagPb link to have a string Name field")),
+            }
+        }
+        anyhow::bail!("could not find DagPb link '{}'", name);
     }
 
     #[tracing::instrument(skip(self))]

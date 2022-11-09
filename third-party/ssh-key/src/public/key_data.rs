@@ -1,19 +1,14 @@
 //! Public key data.
 
 use super::{Ed25519PublicKey, SkEd25519};
-use crate::{
-    checked::CheckedSum, decode::Decode, encode::Encode, reader::Reader, writer::Writer, Algorithm,
-    Error, Result,
-};
+use crate::{Algorithm, Error, Fingerprint, HashAlg, Result};
+use encoding::{CheckedSum, Decode, Encode, Reader, Writer};
 
 #[cfg(feature = "alloc")]
 use super::{DsaPublicKey, RsaPublicKey};
 
 #[cfg(feature = "ecdsa")]
 use super::{EcdsaPublicKey, SkEcdsaSha2NistP256};
-
-#[cfg(feature = "fingerprint")]
-use crate::{Fingerprint, HashAlg};
 
 /// Public key data.
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -99,8 +94,6 @@ impl KeyData {
     /// Compute key fingerprint.
     ///
     /// Use [`Default::default()`] to use the default hash function (SHA-256).
-    #[cfg(feature = "fingerprint")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "fingerprint")))]
     pub fn fingerprint(&self, hash_alg: HashAlg) -> Fingerprint {
         Fingerprint::new(hash_alg, self)
     }
@@ -229,6 +222,8 @@ impl KeyData {
 }
 
 impl Decode for KeyData {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         let algorithm = Algorithm::decode(reader)?;
         Self::decode_as(reader, algorithm)
@@ -236,12 +231,14 @@ impl Decode for KeyData {
 }
 
 impl Encode for KeyData {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        [
+        Ok([
             self.algorithm().encoded_len()?,
             self.encoded_key_data_len()?,
         ]
-        .checked_sum()
+        .checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {

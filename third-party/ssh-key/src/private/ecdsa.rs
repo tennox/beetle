@@ -1,10 +1,8 @@
 //! Elliptic Curve Digital Signature Algorithm (ECDSA) private keys.
 
-use crate::{
-    checked::CheckedSum, decode::Decode, encode::Encode, public::EcdsaPublicKey, reader::Reader,
-    writer::Writer, Algorithm, EcdsaCurve, Error, Result,
-};
+use crate::{public::EcdsaPublicKey, Algorithm, EcdsaCurve, Error, Result};
 use core::fmt;
+use encoding::{CheckedSum, Decode, Encode, Reader, Writer};
 use sec1::consts::{U32, U48, U66};
 use zeroize::Zeroize;
 
@@ -33,10 +31,18 @@ impl<const SIZE: usize> EcdsaPrivateKey<SIZE> {
         self.bytes
     }
 
-    /// Decode ECDSA private key using the provided Base64 reader.
+    /// Does this private key need to be prefixed with a leading zero?
+    fn needs_leading_zero(&self) -> bool {
+        self.bytes[0] >= 0x80
+    }
+}
+
+impl<const SIZE: usize> Decode for EcdsaPrivateKey<SIZE> {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
-        reader.read_nested(|reader| {
-            if reader.remaining_len() == SIZE.checked_add(1).ok_or(Error::Length)? {
+        reader.read_prefixed(|reader| {
+            if reader.remaining_len() == SIZE.checked_add(1).ok_or(encoding::Error::Length)? {
                 // Strip leading zero
                 // TODO(tarcieri): make sure leading zero was necessary
                 if u8::decode(reader)? != 0 {
@@ -49,16 +55,13 @@ impl<const SIZE: usize> EcdsaPrivateKey<SIZE> {
             Ok(Self { bytes })
         })
     }
-
-    /// Does this private key need to be prefixed with a leading zero?
-    fn needs_leading_zero(&self) -> bool {
-        self.bytes[0] >= 0x80
-    }
 }
 
 impl<const SIZE: usize> Encode for EcdsaPrivateKey<SIZE> {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        [4, self.needs_leading_zero().into(), SIZE].checked_sum()
+        Ok([4, self.needs_leading_zero().into(), SIZE].checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
@@ -70,7 +73,8 @@ impl<const SIZE: usize> Encode for EcdsaPrivateKey<SIZE> {
             writer.write(&[0])?;
         }
 
-        writer.write(&self.bytes)
+        writer.write(&self.bytes)?;
+        Ok(())
     }
 }
 
@@ -114,6 +118,16 @@ impl<const SIZE: usize> Drop for EcdsaPrivateKey<SIZE> {
 #[cfg_attr(docsrs, doc(cfg(feature = "p256")))]
 impl From<p256::SecretKey> for EcdsaPrivateKey<32> {
     fn from(sk: p256::SecretKey) -> EcdsaPrivateKey<32> {
+        EcdsaPrivateKey {
+            bytes: sk.to_be_bytes().into(),
+        }
+    }
+}
+
+#[cfg(feature = "p384")]
+#[cfg_attr(docsrs, doc(cfg(feature = "p384")))]
+impl From<p384::SecretKey> for EcdsaPrivateKey<48> {
+    fn from(sk: p384::SecretKey) -> EcdsaPrivateKey<48> {
         EcdsaPrivateKey {
             bytes: sk.to_be_bytes().into(),
         }
@@ -188,6 +202,15 @@ impl EcdsaKeypair {
                     public: public.into(),
                 })
             }
+            #[cfg(feature = "p384")]
+            EcdsaCurve::NistP384 => {
+                let private = p384::SecretKey::random(rng);
+                let public = private.public_key();
+                Ok(EcdsaKeypair::NistP384 {
+                    private: private.into(),
+                    public: public.into(),
+                })
+            }
             _ => Err(Error::Algorithm),
         }
     }
@@ -228,6 +251,8 @@ impl EcdsaKeypair {
 }
 
 impl Decode for EcdsaKeypair {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         match EcdsaPublicKey::decode(reader)? {
             EcdsaPublicKey::NistP256(public) => {
@@ -247,6 +272,8 @@ impl Decode for EcdsaKeypair {
 }
 
 impl Encode for EcdsaKeypair {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
         let public_len = EcdsaPublicKey::from(self).encoded_len()?;
 
@@ -256,7 +283,7 @@ impl Encode for EcdsaKeypair {
             Self::NistP521 { private, .. } => private.encoded_len()?,
         };
 
-        [public_len, private_len].checked_sum()
+        Ok([public_len, private_len].checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {

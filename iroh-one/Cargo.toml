@@ -36,7 +36,6 @@ tokio = {version = "1", features = ["macros", "rt-multi-thread", "process"]}
 tracing = "0.1.33"
 
 [dev-dependencies]
-axum-macros = "0.2.0" # use #[axum_macros::debug_handler] for better error messages on handlers
 http = "0.2" 
 
 [features]

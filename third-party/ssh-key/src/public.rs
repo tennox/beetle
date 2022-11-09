@@ -8,10 +8,10 @@ mod dsa;
 mod ecdsa;
 mod ed25519;
 mod key_data;
-mod openssh;
 #[cfg(feature = "alloc")]
 mod rsa;
 mod sk;
+mod ssh_format;
 
 pub use self::{ed25519::Ed25519PublicKey, key_data::KeyData, sk::SkEd25519};
 
@@ -21,28 +21,22 @@ pub use self::{dsa::DsaPublicKey, rsa::RsaPublicKey};
 #[cfg(feature = "ecdsa")]
 pub use self::{ecdsa::EcdsaPublicKey, sk::SkEcdsaSha2NistP256};
 
-pub(crate) use self::openssh::Encapsulation;
+pub(crate) use self::ssh_format::SshFormat;
 
-use crate::{
-    decode::Decode,
-    encode::Encode,
-    reader::{Base64Reader, Reader},
-    Algorithm, Error, Result,
-};
+use crate::{Algorithm, Error, Fingerprint, HashAlg, Result};
 use core::str::FromStr;
+use encoding::{Base64Reader, Decode, Reader};
 
 #[cfg(feature = "alloc")]
 use {
-    crate::{checked::CheckedSum, writer::base64_len},
+    crate::SshSig,
     alloc::{
         borrow::ToOwned,
         string::{String, ToString},
         vec::Vec,
     },
+    encoding::Encode,
 };
-
-#[cfg(feature = "fingerprint")]
-use crate::{Fingerprint, HashAlg};
 
 #[cfg(all(feature = "alloc", feature = "serde"))]
 use serde::{de, ser, Deserialize, Serialize};
@@ -109,7 +103,7 @@ impl PublicKey {
     /// ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti foo@bar.com
     /// ```
     pub fn from_openssh(public_key: &str) -> Result<Self> {
-        let encapsulation = Encapsulation::decode(public_key.trim_end().as_bytes())?;
+        let encapsulation = SshFormat::decode(public_key.trim_end().as_bytes())?;
         let mut reader = Base64Reader::new(encapsulation.base64_data)?;
         let key_data = KeyData::decode(&mut reader)?;
 
@@ -124,21 +118,24 @@ impl PublicKey {
             comment: encapsulation.comment.to_owned(),
         };
 
-        reader.finish(public_key)
+        Ok(reader.finish(public_key)?)
     }
 
     /// Parse a raw binary SSH public key.
     pub fn from_bytes(mut bytes: &[u8]) -> Result<Self> {
         let reader = &mut bytes;
         let key_data = KeyData::decode(reader)?;
-        reader.finish(key_data.into())
+        Ok(reader.finish(key_data.into())?)
     }
 
     /// Encode OpenSSH-formatted public key.
     pub fn encode_openssh<'o>(&self, out: &'o mut [u8]) -> Result<&'o str> {
-        Encapsulation::encode(out, self.algorithm().as_str(), self.comment(), |writer| {
-            self.key_data.encode(writer)
-        })
+        SshFormat::encode(
+            self.algorithm().as_str(),
+            &self.key_data,
+            self.comment(),
+            out,
+        )
     }
 
     /// Encode an OpenSSH-formatted public key, allocating a [`String`] for
@@ -146,18 +143,7 @@ impl PublicKey {
     #[cfg(feature = "alloc")]
     #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     pub fn to_openssh(&self) -> Result<String> {
-        let encoded_len = [
-            2, // interstitial spaces
-            self.algorithm().as_str().len(),
-            base64_len(self.key_data.encoded_len()?),
-            self.comment.len(),
-        ]
-        .checked_sum()?;
-
-        let mut buf = vec![0u8; encoded_len];
-        let actual_len = self.encode_openssh(&mut buf)?.len();
-        buf.truncate(actual_len);
-        Ok(String::from_utf8(buf)?)
+        SshFormat::encode_string(self.algorithm().as_str(), &self.key_data, self.comment())
     }
 
     /// Serialize SSH public key as raw bytes.
@@ -167,6 +153,33 @@ impl PublicKey {
         let mut public_key_bytes = Vec::new();
         self.key_data.encode(&mut public_key_bytes)?;
         Ok(public_key_bytes)
+    }
+
+    /// Verify the [`SshSig`] signature over the given message using this
+    /// public key.
+    ///
+    /// These signatures can be produced using `ssh-keygen -Y sign`. They're
+    /// encoded as PEM and begin with the following:
+    ///
+    /// ```text
+    /// -----BEGIN SSH SIGNATURE-----
+    /// ```
+    ///
+    /// See [PROTOCOL.sshsig] for more information.
+    ///
+    /// [PROTOCOL.sshsig]: https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL.sshsig?annotate=HEAD
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+    pub fn verify(&self, namespace: &str, msg: &[u8], signature: &SshSig) -> Result<()> {
+        if self.key_data() != signature.public_key() {
+            return Err(Error::PublicKey);
+        }
+
+        if namespace != signature.namespace() {
+            return Err(Error::Namespace);
+        }
+
+        signature.verify(msg)
     }
 
     /// Read public key from an OpenSSH-formatted file.
@@ -211,8 +224,6 @@ impl PublicKey {
     /// Compute key fingerprint.
     ///
     /// Use [`Default::default()`] to use the default hash function (SHA-256).
-    #[cfg(feature = "fingerprint")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "fingerprint")))]
     pub fn fingerprint(&self, hash_alg: HashAlg) -> Fingerprint {
         self.key_data.fingerprint(hash_alg)
     }

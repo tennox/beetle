@@ -2,10 +2,8 @@
 //!
 //! These are used for deriving an encryption key from a password.
 
-use crate::{
-    checked::CheckedSum, decode::Decode, encode::Encode, reader::Reader, writer::Writer, Error,
-    KdfAlg, Result,
-};
+use crate::{Error, KdfAlg, Result};
+use encoding::{CheckedSum, Decode, Encode, Reader, Writer};
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -98,7 +96,9 @@ impl Kdf {
         password: impl AsRef<[u8]>,
     ) -> Result<(Zeroizing<Vec<u8>>, Vec<u8>)> {
         let (key_size, iv_size) = cipher.key_and_iv_size().ok_or(Error::Decrypted)?;
-        let okm_size = key_size.checked_add(iv_size).ok_or(Error::Length)?;
+        let okm_size = key_size
+            .checked_add(iv_size)
+            .ok_or(encoding::Error::Length)?;
 
         let mut okm = Zeroizing::new(vec![0u8; okm_size]);
         self.derive(password, &mut okm)?;
@@ -131,6 +131,8 @@ impl Default for Kdf {
 }
 
 impl Decode for Kdf {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         match KdfAlg::decode(reader)? {
             KdfAlg::None => {
@@ -145,7 +147,7 @@ impl Decode for Kdf {
                 return Err(Error::Algorithm);
 
                 #[cfg(feature = "alloc")]
-                reader.read_nested(|reader| {
+                reader.read_prefixed(|reader| {
                     Ok(Self::Bcrypt {
                         salt: Vec::decode(reader)?,
                         rounds: u32::decode(reader)?,
@@ -157,32 +159,31 @@ impl Decode for Kdf {
 }
 
 impl Encode for Kdf {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        let kdfopts_len = match self {
-            Self::None => 0,
+        let kdfopts_prefixed_len = match self {
+            Self::None => 4,
             #[cfg(feature = "alloc")]
-            Self::Bcrypt { salt, .. } => [8, salt.len()].checked_sum()?,
+            Self::Bcrypt { salt, .. } => [12, salt.len()].checked_sum()?,
         };
 
-        [
-            self.algorithm().encoded_len()?,
-            4, // kdfopts length prefix (uint32)
-            kdfopts_len,
-        ]
-        .checked_sum()
+        Ok([self.algorithm().encoded_len()?, kdfopts_prefixed_len].checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
         self.algorithm().encode(writer)?;
 
         match self {
-            Self::None => 0usize.encode(writer),
+            Self::None => 0usize.encode(writer)?,
             #[cfg(feature = "alloc")]
             Self::Bcrypt { salt, rounds } => {
                 [8, salt.len()].checked_sum()?.encode(writer)?;
                 salt.encode(writer)?;
-                rounds.encode(writer)
+                rounds.encode(writer)?
             }
         }
+
+        Ok(())
     }
 }

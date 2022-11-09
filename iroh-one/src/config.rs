@@ -63,7 +63,10 @@ impl Config {
     /// as a single entry point for other system services if feature enabled.
     pub fn default_rpc_config() -> RpcClientConfig {
         #[cfg(feature = "uds-gateway")]
-        let path: PathBuf = TempDir::new().unwrap().path().join("ipfsd.http");
+        let path: PathBuf = TempDir::new()
+            .unwrap()
+            .path()
+            .join("ipfsd.http");
 
         RpcClientConfig {
             #[cfg(feature = "uds-gateway")]

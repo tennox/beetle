@@ -1,8 +1,9 @@
 //! Unix timestamps.
 
-use crate::{decode::Decode, encode::Encode, reader::Reader, writer::Writer, Error, Result};
+use crate::{Error, Result};
 use core::fmt;
 use core::fmt::Formatter;
+use encoding::{Decode, Encode, Reader, Writer};
 
 #[cfg(feature = "std")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -58,25 +59,30 @@ impl UnixTime {
     }
 
     /// Get the current time as a Unix timestamp.
-    #[cfg(all(feature = "std", feature = "fingerprint"))]
+    #[cfg(all(feature = "std"))]
     pub fn now() -> Result<Self> {
         SystemTime::now().try_into()
     }
 }
 
 impl Decode for UnixTime {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         u64::decode(reader)?.try_into()
     }
 }
 
 impl Encode for UnixTime {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        self.secs.encoded_len()
+        Ok(self.secs.encoded_len()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
-        self.secs.encode(writer)
+        self.secs.encode(writer)?;
+        Ok(())
     }
 }
 

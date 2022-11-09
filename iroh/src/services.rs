@@ -6,24 +6,59 @@ use iroh_util::iroh_cache_path;
 use std::collections::HashSet;
 use std::io::{stdout, Write};
 use std::time::SystemTime;
+use sysinfo::PidExt;
 use tracing::info;
 
-use iroh_api::{Api, ServiceStatus, StatusRow, StatusTable};
+use iroh_api::{Api, ApiError, ServiceStatus, StatusRow, StatusTable};
 use iroh_util::lock::{LockError, ProgramLock};
 
 const SERVICE_START_TIMEOUT_SECONDS: u64 = 15;
 
 /// start any of {iroh-gateway,iroh-store,iroh-p2p} that aren't currently
 /// running.
-pub async fn start(api: &impl Api) -> Result<()> {
-    start_services(api, HashSet::from(["store", "p2p", "gateway"])).await
+pub async fn start(api: &Api, services: &Vec<String>) -> Result<()> {
+    let services = match services.is_empty() {
+        true => HashSet::from(["gateway", "store"]),
+        false => {
+            let mut hs: HashSet<&str> = HashSet::new();
+            for s in services {
+                hs.insert(s.as_str());
+            }
+            hs
+        }
+    };
+    start_services(api, services).await
 }
 
 // TODO(b5) - should check for configuration mismatch between iroh CLI configuration
 // TODO(b5) - services HashSet should be an enum
-async fn start_services(api: &impl Api, services: HashSet<&str>) -> Result<()> {
+async fn start_services(api: &Api, services: HashSet<&str>) -> Result<()> {
     // check for any running iroh services
     let table = api.check().await;
+
+    let mut expected_services = HashSet::new();
+    let expected_services = table
+        .iter()
+        .fold(&mut expected_services, |accum, status_row| {
+            match status_row.status() {
+                iroh_api::ServiceStatus::ServiceUnknown => (),
+                _ => {
+                    accum.insert(status_row.name());
+                }
+            }
+            accum
+        });
+
+    let unknown_services: HashSet<&str> = services.difference(expected_services).copied().collect();
+
+    if !unknown_services.is_empty() {
+        let u = unknown_services.into_iter().collect::<Vec<&str>>();
+        let mut e = "Unknown services";
+        if u.len() == 1 {
+            e = "Unknown service";
+        }
+        return Err(anyhow!("{} {}.", e, u.join(", ")));
+    }
 
     let mut missing_services = HashSet::new();
     let missing_services = table
@@ -56,7 +91,7 @@ async fn start_services(api: &impl Api, services: HashSet<&str>) -> Result<()> {
     if missing_services.is_empty() {
         println!(
             "{}",
-            "All iroh daemons are already running. all systems nominal.".green()
+            "All iroh daemons are already running. all systems normal.".green()
         );
         return Ok(());
     }
@@ -77,7 +112,7 @@ async fn start_services(api: &impl Api, services: HashSet<&str>) -> Result<()> {
 
         iroh_localops::process::daemonize(bin_path, log_path.clone())?;
 
-        let is_up = ensure_status(api, service, iroh_api::ServiceStatus::Serving).await?;
+        let is_up = poll_until_status(api, service, iroh_api::ServiceStatus::Serving).await?;
         if is_up {
             println!("{}", "success".green());
         } else {
@@ -98,11 +133,21 @@ async fn start_services(api: &impl Api, services: HashSet<&str>) -> Result<()> {
 
 /// stop the default set of services by sending SIGINT to any active daemons
 /// identified by lockfiles
-pub async fn stop(api: &impl Api) -> Result<()> {
-    stop_services(api, HashSet::from(["gateway", "p2p", "store"])).await
+pub async fn stop(api: &Api, services: &Vec<String>) -> Result<()> {
+    let services = match services.is_empty() {
+        true => HashSet::from(["store", "p2p", "gateway"]),
+        false => {
+            let mut hs: HashSet<&str> = HashSet::new();
+            for s in services {
+                hs.insert(s.as_str());
+            }
+            hs
+        }
+    };
+    stop_services(api, services).await
 }
 
-pub async fn stop_services(api: &impl Api, services: HashSet<&str>) -> Result<()> {
+pub async fn stop_services(api: &Api, services: HashSet<&str>) -> Result<()> {
     for service in services {
         let daemon_name = format!("iroh-{}", service);
         info!("checking daemon {} lock", daemon_name);
@@ -111,9 +156,9 @@ pub async fn stop_services(api: &impl Api, services: HashSet<&str>) -> Result<()
             Ok(pid) => {
                 info!("stopping {} pid: {}", daemon_name, pid);
                 print!("stopping {}... ", &daemon_name);
-                match iroh_localops::process::stop(pid.into()) {
+                match iroh_localops::process::stop(pid.as_u32()) {
                     Ok(_) => {
-                        let is_down = ensure_status(
+                        let is_down = poll_until_status(
                             api,
                             service,
                             iroh_api::ServiceStatus::Down(tonic::Status::unavailable(
@@ -134,7 +179,7 @@ pub async fn stop_services(api: &impl Api, services: HashSet<&str>) -> Result<()
             }
             Err(e) => match e {
                 LockError::NoLock(_) => {
-                    eprintln!("{}", format!("{} is already stopped", daemon_name).red());
+                    eprintln!("{}", format!("{} is already stopped", daemon_name).white());
                 }
                 LockError::ZombieLock(_) => {
                     lock.destroy_without_checking().unwrap();
@@ -154,7 +199,7 @@ pub async fn stop_services(api: &impl Api, services: HashSet<&str>) -> Result<()
     Ok(())
 }
 
-pub async fn status(api: &impl Api, watch: bool) -> Result<()> {
+pub async fn status(api: &Api, watch: bool) -> Result<()> {
     let mut stdout = stdout();
     if watch {
         let status_stream = api.watch().await;
@@ -222,7 +267,7 @@ where
                     .queue(style::Print("\tThe service has been interupted"))?;
             }
             code => {
-                w.queue(style::PrintStyledContent("Down".red()))?
+                w.queue(style::PrintStyledContent("Down".grey()))?
                     .queue(style::Print(format!("\t{}", code)))?;
             }
         },
@@ -231,10 +276,25 @@ where
     Ok(())
 }
 
+/// require a set of services is up. returns the underlying status table of all
+/// services for additional scrutiny
+pub async fn require_services(api: &Api, services: HashSet<&str>) -> Result<iroh_api::StatusTable> {
+    let table = api.check().await;
+    for service in table.iter() {
+        if services.contains(service.name()) && service.status() != iroh_api::ServiceStatus::Serving
+        {
+            return Err(anyhow!(ApiError::ConnectionRefused {
+                service: service.name()
+            }));
+        }
+    }
+    Ok(table)
+}
+
 /// poll until a service matches the desired status. returns Ok(true) if status was matched,
 /// and Ok(false) if desired status isn't reported before SERVICE_START_TIMEOUT_SECONDS
-async fn ensure_status(
-    api: &impl Api,
+async fn poll_until_status(
+    api: &Api,
     service: &str,
     status: iroh_api::ServiceStatus,
 ) -> Result<bool> {
@@ -266,7 +326,7 @@ mod tests {
 
     #[test]
     fn status_table_queue() {
-        let expect = format!("{}gateway\t\t\t1/1\t{}\np2p\t\t\t1/1\t{}\nstore\t\t\t1/1\t{}\tThe service is currently unavailable\n", "Process\t\t\tNumber\tStatus\n".bold(), "Unknown".dark_yellow(), "Serving".green(), "Down".red());
+        let expect = format!("{}gateway\t\t\t1/1\t{}\np2p\t\t\t1/1\t{}\nstore\t\t\t1/1\t{}\tThe service is currently unavailable\n", "Process\t\t\tNumber\tStatus\n".bold(), "Unknown".dark_yellow(), "Serving".green(), "Down".grey());
         let table = StatusTable::new(
             Some(StatusRow::new("gateway", 1, ServiceStatus::Unknown)),
             Some(StatusRow::new("p2p", 1, ServiceStatus::Serving)),
@@ -330,7 +390,7 @@ mod tests {
                 ),
                 output: format!(
                     "test\t\t\t1/1\t{}\tThe service is currently unavailable\n",
-                    "Down".red()
+                    "Down".grey()
                 ),
             },
         ];

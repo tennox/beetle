@@ -1,7 +1,7 @@
 //! OpenSSH certificate builder.
 
-use super::{unix_time::UnixTime, CertType, Certificate, Field, OptionsMap, SigningKey};
-use crate::{public, Result, Signature};
+use super::{unix_time::UnixTime, CertType, Certificate, Field, OptionsMap};
+use crate::{public, Result, Signature, SigningKey};
 use alloc::{string::String, vec::Vec};
 
 #[cfg(feature = "rand_core")]
@@ -309,7 +309,7 @@ impl Builder {
         cert.encode_tbs(&mut tbs_cert)?;
         cert.signature = signing_key.try_sign(&tbs_cert)?;
 
-        #[cfg(all(debug_assertions, feature = "fingerprint"))]
+        #[cfg(debug_assertions)]
         cert.validate_at(
             cert.valid_after.into(),
             &[cert.signature_key.fingerprint(Default::default())],

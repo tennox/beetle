@@ -221,6 +221,28 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
     }
 
     fn expiry(&mut self) -> Result<()> {
+        // Cleanup bitswap sessions
+        let mut to_remove = Vec::new();
+        for (session_id, workers) in &mut self.bitswap_sessions {
+            // Check if the workers are still active
+            workers.retain(|(_, worker)| !worker.is_finished());
+
+            if workers.is_empty() {
+                to_remove.push(*session_id);
+            }
+
+            // Only do a small chunk of cleanup on each iteration
+            // TODO(arqu): magic number
+            if to_remove.len() >= 10 {
+                break;
+            }
+        }
+
+        for session_id in to_remove {
+            let (s, _r) = oneshot::channel();
+            self.destroy_session(session_id, s);
+        }
+
         Ok(())
     }
 
@@ -1033,6 +1055,7 @@ mod tests {
 
         let cfg = iroh_rpc_client::Config {
             p2p_addr: Some(rpc_client_addr),
+            channels: Some(1),
             ..Default::default()
         };
         let p2p_task = tokio::task::spawn(async move {
@@ -1048,7 +1071,7 @@ mod tests {
                 .unwrap();
 
             let mut providers = Vec::new();
-            let mut chan = client.p2p.unwrap().fetch_providers_dht(&c).await?;
+            let mut chan = client.try_p2p().unwrap().fetch_providers_dht(&c).await?;
             while let Some(new_providers) = chan.next().await {
                 let new_providers = new_providers.unwrap();
                 println!("providers found: {}", new_providers.len());

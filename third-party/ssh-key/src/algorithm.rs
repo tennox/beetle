@@ -1,7 +1,14 @@
 //! Algorithm support.
 
-use crate::{decode::Decode, encode::Encode, reader::Reader, writer::Writer, Error, Result};
+use crate::{Error, Result};
 use core::{fmt, str};
+use encoding::Label;
+
+#[cfg(feature = "alloc")]
+use {
+    alloc::vec::Vec,
+    sha2::{Digest, Sha256, Sha512},
+};
 
 /// bcrypt-pbkdf
 const BCRYPT: &str = "bcrypt";
@@ -49,10 +56,10 @@ const RSA_SHA2_256: &str = "rsa-sha2-256";
 const RSA_SHA2_512: &str = "rsa-sha2-512";
 
 /// SHA-256 hash function
-const SHA256: &str = "SHA256";
+const SHA256: &str = "sha256";
 
 /// SHA-512 hash function
-const SHA512: &str = "SHA512";
+const SHA512: &str = "sha512";
 
 /// Digital Signature Algorithm
 const SSH_DSA: &str = "ssh-dss";
@@ -68,34 +75,6 @@ const SK_ECDSA_SHA2_P256: &str = "sk-ecdsa-sha2-nistp256@openssh.com";
 
 /// U2F/FIDO security key with Ed25519
 const SK_SSH_ED25519: &str = "sk-ssh-ed25519@openssh.com";
-
-/// Maximum size of any algorithm name/identifier.
-const MAX_ALG_NAME_SIZE: usize = 48;
-
-/// String identifiers for cryptographic algorithms.
-///
-/// Receives a blanket impl of [`Decode`] and [`Encode`].
-pub(crate) trait AlgString: AsRef<str> + str::FromStr<Err = Error> {}
-
-impl<T: AlgString> Decode for T {
-    fn decode(reader: &mut impl Reader) -> Result<Self> {
-        let mut buf = [0u8; MAX_ALG_NAME_SIZE];
-        reader
-            .read_string(buf.as_mut())
-            .map_err(|_| Error::Algorithm)?
-            .parse()
-    }
-}
-
-impl<T: AlgString> Encode for T {
-    fn encoded_len(&self) -> Result<usize> {
-        self.as_ref().encoded_len()
-    }
-
-    fn encode(&self, writer: &mut impl Writer) -> Result<()> {
-        self.as_ref().encode(writer)
-    }
-}
 
 /// SSH key algorithms.
 ///
@@ -279,7 +258,9 @@ impl AsRef<str> for Algorithm {
     }
 }
 
-impl AlgString for Algorithm {}
+impl Label for Algorithm {
+    type Error = Error;
+}
 
 impl Default for Algorithm {
     fn default() -> Algorithm {
@@ -357,7 +338,9 @@ impl AsRef<str> for EcdsaCurve {
     }
 }
 
-impl AlgString for EcdsaCurve {}
+impl Label for EcdsaCurve {
+    type Error = Error;
+}
 
 impl fmt::Display for EcdsaCurve {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -389,8 +372,8 @@ impl HashAlg {
     ///
     /// # Supported hash algorithms
     ///
-    /// - `SHA256`
-    /// - `SHA512`
+    /// - `sha256`
+    /// - `sha512`
     pub fn new(id: &str) -> Result<Self> {
         match id {
             SHA256 => Ok(HashAlg::Sha256),
@@ -414,6 +397,20 @@ impl HashAlg {
             HashAlg::Sha512 => 64,
         }
     }
+
+    /// Compute a digest of the given message using this hash function.
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+    pub fn digest(self, msg: &[u8]) -> Vec<u8> {
+        match self {
+            HashAlg::Sha256 => Sha256::digest(msg).to_vec(),
+            HashAlg::Sha512 => Sha512::digest(msg).to_vec(),
+        }
+    }
+}
+
+impl Label for HashAlg {
+    type Error = Error;
 }
 
 impl AsRef<str> for HashAlg {
@@ -480,13 +477,15 @@ impl KdfAlg {
     }
 }
 
+impl Label for KdfAlg {
+    type Error = Error;
+}
+
 impl AsRef<str> for KdfAlg {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
-
-impl AlgString for KdfAlg {}
 
 impl Default for KdfAlg {
     fn default() -> KdfAlg {

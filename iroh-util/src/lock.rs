@@ -6,6 +6,7 @@ use std::io::ErrorKind;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process;
+use sysinfo::PidExt;
 use sysinfo::{Pid, ProcessExt, ProcessStatus::*, System, SystemExt};
 use thiserror::Error;
 use tracing::warn;
@@ -50,7 +51,7 @@ impl ProgramLock {
                 self
             }
             Ok(true) => {
-                eprintln!("{} is already running, stopping.", self.program_name());
+                eprintln!("{} is already running", self.program_name());
                 process::exit(exitcodes::LOCKED);
             }
             Err(err) => {
@@ -185,7 +186,7 @@ pub fn read_lock_pid(prog_name: &str) -> Result<Pid, LockError> {
 }
 
 fn read_lock(path: &PathBuf) -> Result<Pid, LockError> {
-    let mut file = File::open(&path).map_err(|e| match e.kind() {
+    let mut file = File::open(path).map_err(|e| match e.kind() {
         ErrorKind::NotFound => LockError::NoLock(path.clone()),
         e => LockError::Uncategorized {
             source: anyhow!("{}", e),
@@ -195,9 +196,9 @@ fn read_lock(path: &PathBuf) -> Result<Pid, LockError> {
     file.read_to_string(&mut pid)
         .map_err(|_| LockError::CorruptLock(path.clone()))?;
     let pid = pid
-        .parse::<i32>()
+        .parse::<u32>()
         .map_err(|_| LockError::CorruptLock(path.clone()))?;
-    Ok(Pid::from(pid))
+    Ok(Pid::from_u32(pid))
 }
 
 /// LockError is the set of known program lock errors

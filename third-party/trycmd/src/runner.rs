@@ -321,18 +321,22 @@ impl Case {
             return Ok(output);
         }
 
-        #[allow(unused_variables)]
         match &step.bin {
             Some(crate::schema::Bin::Path(_)) => {}
-            Some(crate::schema::Bin::Name(name)) => {
+            Some(crate::schema::Bin::Name(_name)) => {
                 // Unhandled by resolve
-                snapbox::debug!("bin={:?} not found", name);
+                snapbox::debug!("bin={:?} not found", _name);
                 assert_eq!(output.spawn.status, SpawnStatus::Skipped);
                 return Ok(output);
             }
             Some(crate::schema::Bin::Error(_)) => {}
             // Unlike `Name`, this always represents a bug
             None => {}
+            Some(crate::schema::Bin::Ignore) => {
+                // Unhandled by resolve
+                assert_eq!(output.spawn.status, SpawnStatus::Skipped);
+                return Ok(output);
+            }
         }
 
         let cmd = step.to_command(cwd).map_err(|e| output.clone().error(e))?;
@@ -662,19 +666,12 @@ impl std::fmt::Display for Spawn {
                             palette.info(expected),
                             palette.error("success")
                         )?;
-                    } else if let Some(code) = exit.code() {
-                        writeln!(
-                            f,
-                            "Expected {}, was {}",
-                            palette.info(expected),
-                            palette.error(code)
-                        )?;
                     } else {
                         writeln!(
                             f,
                             "Expected {}, was {}",
                             palette.info(expected),
-                            palette.error("interrupted")
+                            palette.error(snapbox::cmd::display_exit_status(exit))
                         )?;
                     }
                 }

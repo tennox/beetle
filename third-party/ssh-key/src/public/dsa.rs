@@ -1,9 +1,7 @@
 //! Digital Signature Algorithm (DSA) public keys.
 
-use crate::{
-    checked::CheckedSum, decode::Decode, encode::Encode, reader::Reader, writer::Writer, MPInt,
-    Result,
-};
+use crate::{Error, MPInt, Result};
+use encoding::{CheckedSum, Decode, Encode, Reader, Writer};
 
 /// Digital Signature Algorithm (DSA) public key.
 ///
@@ -26,6 +24,8 @@ pub struct DsaPublicKey {
 }
 
 impl Decode for DsaPublicKey {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         let p = MPInt::decode(reader)?;
         let q = MPInt::decode(reader)?;
@@ -36,14 +36,16 @@ impl Decode for DsaPublicKey {
 }
 
 impl Encode for DsaPublicKey {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        [
+        Ok([
             self.p.encoded_len()?,
             self.q.encoded_len()?,
             self.g.encoded_len()?,
             self.y.encoded_len()?,
         ]
-        .checked_sum()
+        .checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
@@ -51,5 +53,57 @@ impl Encode for DsaPublicKey {
         self.q.encode(writer)?;
         self.g.encode(writer)?;
         self.y.encode(writer)
+    }
+}
+
+#[cfg(feature = "dsa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dsa")))]
+impl TryFrom<DsaPublicKey> for dsa::VerifyingKey {
+    type Error = Error;
+
+    fn try_from(key: DsaPublicKey) -> Result<dsa::VerifyingKey> {
+        dsa::VerifyingKey::try_from(&key)
+    }
+}
+
+#[cfg(feature = "dsa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dsa")))]
+impl TryFrom<&DsaPublicKey> for dsa::VerifyingKey {
+    type Error = Error;
+
+    fn try_from(key: &DsaPublicKey) -> Result<dsa::VerifyingKey> {
+        let components = dsa::Components::from_components(
+            dsa::BigUint::try_from(&key.p)?,
+            dsa::BigUint::try_from(&key.q)?,
+            dsa::BigUint::try_from(&key.g)?,
+        )?;
+
+        dsa::VerifyingKey::from_components(components, dsa::BigUint::try_from(&key.y)?)
+            .map_err(|_| Error::Crypto)
+    }
+}
+
+#[cfg(feature = "dsa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dsa")))]
+impl TryFrom<dsa::VerifyingKey> for DsaPublicKey {
+    type Error = Error;
+
+    fn try_from(key: dsa::VerifyingKey) -> Result<DsaPublicKey> {
+        DsaPublicKey::try_from(&key)
+    }
+}
+
+#[cfg(feature = "dsa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dsa")))]
+impl TryFrom<&dsa::VerifyingKey> for DsaPublicKey {
+    type Error = Error;
+
+    fn try_from(key: &dsa::VerifyingKey) -> Result<DsaPublicKey> {
+        Ok(DsaPublicKey {
+            p: key.components().p().try_into()?,
+            q: key.components().q().try_into()?,
+            g: key.components().g().try_into()?,
+            y: key.y().try_into()?,
+        })
     }
 }

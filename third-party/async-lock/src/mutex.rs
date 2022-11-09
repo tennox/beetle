@@ -6,7 +6,8 @@ use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-#[cfg(not(target_arch = "wasm32"))]
+// Note: we cannot use `target_family = "wasm"` here because it requires Rust 1.54.
+#[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
 use std::time::{Duration, Instant};
 
 use std::usize;
@@ -114,7 +115,7 @@ impl<T: ?Sized> Mutex<T> {
     #[cold]
     async fn acquire_slow(&self) {
         // Get the current time.
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
         let start = Instant::now();
 
         loop {
@@ -163,7 +164,7 @@ impl<T: ?Sized> Mutex<T> {
 
             // If waiting for too long, fall back to a fairer locking strategy that will prevent
             // newer lock operations from starving us forever.
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
             if start.elapsed() > Duration::from_micros(500) {
                 break;
             }

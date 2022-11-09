@@ -149,44 +149,42 @@ pub mod public;
 pub mod certificate;
 
 mod algorithm;
-mod checked;
 mod cipher;
-mod decode;
-mod encode;
 mod error;
-mod kdf;
-mod reader;
-mod writer;
-
-#[cfg(feature = "fingerprint")]
 mod fingerprint;
+mod kdf;
+
 #[cfg(feature = "alloc")]
 mod mpint;
 #[cfg(feature = "alloc")]
 mod signature;
+#[cfg(feature = "alloc")]
+mod sshsig;
 
 pub use crate::{
     algorithm::{Algorithm, EcdsaCurve, HashAlg, KdfAlg},
     authorized_keys::AuthorizedKeys,
     cipher::Cipher,
     error::{Error, Result},
+    fingerprint::Fingerprint,
     kdf::Kdf,
     private::PrivateKey,
     public::PublicKey,
 };
-pub use base64ct::LineEnding;
-pub use pem_rfc7468 as pem;
+pub use encoding::LineEnding;
+pub use sha2;
 
 #[cfg(feature = "alloc")]
 pub use crate::{
-    certificate::Certificate, known_hosts::KnownHosts, mpint::MPInt, signature::Signature,
+    certificate::Certificate,
+    known_hosts::KnownHosts,
+    mpint::MPInt,
+    signature::{Signature, SigningKey},
+    sshsig::SshSig,
 };
 
 #[cfg(feature = "ecdsa")]
 pub use sec1;
-
-#[cfg(feature = "fingerprint")]
-pub use crate::fingerprint::Fingerprint;
 
 #[cfg(feature = "rand_core")]
 pub use rand_core;

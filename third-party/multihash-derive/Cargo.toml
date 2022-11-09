@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "multihash-derive"
-version = "0.8.0"
+version = "0.8.1"
 authors = ["David Craven <david@craven.ch>"]
 description = "Proc macro for deriving custom multihash tables."
 license = "MIT"
@@ -23,7 +23,7 @@ resolver = "2"
 proc-macro = true
 
 [dependencies.proc-macro-crate]
-version = "1.0.0"
+version = "~1.1.0"
 
 [dependencies.proc-macro-error]
 version = "1.0.4"

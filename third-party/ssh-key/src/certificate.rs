@@ -4,23 +4,14 @@ mod builder;
 mod cert_type;
 mod field;
 mod options_map;
-mod signing_key;
 mod unix_time;
 
-pub use self::{
-    builder::Builder, cert_type::CertType, field::Field, options_map::OptionsMap,
-    signing_key::SigningKey,
-};
+pub use self::{builder::Builder, cert_type::CertType, field::Field, options_map::OptionsMap};
 
 use self::unix_time::UnixTime;
 use crate::{
-    checked::CheckedSum,
-    decode::Decode,
-    encode::Encode,
-    public::{Encapsulation, KeyData},
-    reader::{Base64Reader, Reader},
-    writer::{base64_len, Writer},
-    Algorithm, Error, Result, Signature,
+    public::{KeyData, SshFormat},
+    Algorithm, Error, Fingerprint, HashAlg, Result, Signature,
 };
 use alloc::{
     borrow::ToOwned,
@@ -28,12 +19,8 @@ use alloc::{
     vec::Vec,
 };
 use core::str::FromStr;
-
-#[cfg(feature = "fingerprint")]
-use {
-    crate::{Fingerprint, HashAlg},
-    signature::Verifier,
-};
+use encoding::{Base64Reader, CheckedSum, Decode, Encode, Reader, Writer};
+use signature::Verifier;
 
 #[cfg(feature = "serde")]
 use serde::{de, ser, Deserialize, Serialize};
@@ -184,7 +171,7 @@ impl Certificate {
     /// ssh-ed25519-cert-v01@openssh.com AAAAIHNzaC1lZDI1NTE5LWNlc...8REbCaAw== user@example.com
     /// ```
     pub fn from_openssh(certificate_str: &str) -> Result<Self> {
-        let encapsulation = Encapsulation::decode(certificate_str.trim_end().as_bytes())?;
+        let encapsulation = SshFormat::decode(certificate_str.trim_end().as_bytes())?;
         let mut reader = Base64Reader::new(encapsulation.base64_data)?;
         let mut cert = Certificate::decode(&mut reader)?;
 
@@ -194,36 +181,19 @@ impl Certificate {
         }
 
         cert.comment = encapsulation.comment.to_owned();
-        reader.finish(cert)
+        Ok(reader.finish(cert)?)
     }
 
     /// Parse a raw binary OpenSSH certificate.
     pub fn from_bytes(mut bytes: &[u8]) -> Result<Self> {
         let reader = &mut bytes;
         let cert = Certificate::decode(reader)?;
-        reader.finish(cert)
+        Ok(reader.finish(cert)?)
     }
 
     /// Encode OpenSSH certificate to a [`String`].
     pub fn to_openssh(&self) -> Result<String> {
-        let encoded_len = [
-            2, // interstitial spaces
-            self.algorithm().as_certificate_str().len(),
-            base64_len(self.encoded_len()?),
-            self.comment.len(),
-        ]
-        .checked_sum()?;
-
-        let mut out = vec![0u8; encoded_len];
-        let actual_len = Encapsulation::encode(
-            &mut out,
-            self.algorithm().as_certificate_str(),
-            self.comment(),
-            |writer| self.encode(writer),
-        )?
-        .len();
-        out.truncate(actual_len);
-        Ok(String::from_utf8(out)?)
+        SshFormat::encode_string(self.algorithm().as_certificate_str(), self, self.comment())
     }
 
     /// Serialize OpenSSH certificate as raw bytes.
@@ -372,8 +342,8 @@ impl Certificate {
     ///
     /// See [`Certificate::validate_at`] documentation for important notes on
     /// how to properly validate certificates!
-    #[cfg(all(feature = "fingerprint", feature = "std"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "fingerprint", feature = "std"))))]
+    #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn validate<'a, I>(&self, ca_fingerprints: I) -> Result<()>
     where
         I: IntoIterator<Item = &'a Fingerprint>,
@@ -409,8 +379,6 @@ impl Certificate {
     /// ## Returns
     /// - `Ok` if the certificate validated successfully
     /// - `Error::CertificateValidation` if the certificate failed to validate
-    #[cfg(feature = "fingerprint")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "fingerprint")))]
     pub fn validate_at<'a, I>(&self, unix_timestamp: u64, ca_fingerprints: I) -> Result<()>
     where
         I: IntoIterator<Item = &'a Fingerprint>,
@@ -454,7 +422,6 @@ impl Certificate {
     ///
     /// It is public only for testing purposes, and deliberately hidden from
     /// the documentation for that reason.
-    #[cfg(feature = "fingerprint")]
     #[doc(hidden)]
     pub fn verify_signature(&self) -> Result<()> {
         let mut tbs_certificate = Vec::new();
@@ -479,11 +446,13 @@ impl Certificate {
         self.critical_options.encode(writer)?;
         self.extensions.encode(writer)?;
         self.reserved.encode(writer)?;
-        self.signature_key.encode_nested(writer)
+        self.signature_key.encode_prefixed(writer)
     }
 }
 
 impl Decode for Certificate {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         let algorithm = Algorithm::new_certificate(&String::decode(reader)?)?;
 
@@ -499,16 +468,18 @@ impl Decode for Certificate {
             critical_options: OptionsMap::decode(reader)?,
             extensions: OptionsMap::decode(reader)?,
             reserved: Vec::decode(reader)?,
-            signature_key: reader.read_nested(KeyData::decode)?,
-            signature: reader.read_nested(Signature::decode)?,
+            signature_key: reader.read_prefixed(KeyData::decode)?,
+            signature: reader.read_prefixed(Signature::decode)?,
             comment: String::new(),
         })
     }
 }
 
 impl Encode for Certificate {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        [
+        Ok([
             self.algorithm().as_certificate_str().encoded_len()?,
             self.nonce.encoded_len()?,
             self.public_key.encoded_key_data_len()?,
@@ -521,17 +492,15 @@ impl Encode for Certificate {
             self.critical_options.encoded_len()?,
             self.extensions.encoded_len()?,
             self.reserved.encoded_len()?,
-            4, // signature key length prefix (uint32)
-            self.signature_key.encoded_len()?,
-            4, // signature length prefix (uint32)
-            self.signature.encoded_len()?,
+            self.signature_key.encoded_len_prefixed()?,
+            self.signature.encoded_len_prefixed()?,
         ]
-        .checked_sum()
+        .checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
         self.encode_tbs(writer)?;
-        self.signature.encode_nested(writer)
+        self.signature.encode_prefixed(writer)
     }
 }
 

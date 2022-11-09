@@ -16,12 +16,15 @@ use cid::{
 use config::{Config, ConfigError, Environment, File, Map, Source, Value, ValueKind};
 use tracing::debug;
 
+pub mod exitcodes;
 pub mod human;
 pub mod lock;
 
 /// name of directory that wraps all iroh files in a given application directory
 const IROH_DIR: &str = "iroh";
+#[cfg(unix)]
 const DEFAULT_NOFILE_LIMIT: u64 = 65536;
+#[cfg(unix)]
 const MIN_NOFILE_LIMIT: u64 = 2048;
 
 /// Blocks current thread until ctrl-c is received
@@ -59,7 +62,7 @@ pub async fn block_until_sigint() {
 pub fn iroh_config_root() -> Result<PathBuf> {
     let cfg = dirs_next::config_dir()
         .ok_or_else(|| anyhow!("operating environment provides no directory for configuration"))?;
-    Ok(cfg.join(&IROH_DIR))
+    Ok(cfg.join(IROH_DIR))
 }
 
 // Path that leads to a file in the iroh config directory.
@@ -83,7 +86,7 @@ pub fn iroh_data_root() -> Result<PathBuf> {
     let path = dirs_next::data_dir().ok_or_else(|| {
         anyhow!("operating environment provides no directory for application data")
     })?;
-    Ok(path.join(&IROH_DIR))
+    Ok(path.join(IROH_DIR))
 }
 
 #[cfg(target_os = "android")]
@@ -94,6 +97,28 @@ pub fn iroh_data_root() -> Result<PathBuf> {
 /// Path that leads to a file in the iroh data directory.
 pub fn iroh_data_path(file_name: &str) -> Result<PathBuf> {
     let path = iroh_data_root()?.join(file_name);
+    Ok(path)
+}
+
+/// Returns the path to the user's iroh cache directory.
+///
+/// The returned value depends on the operating system and is either a `Some`, containing a value from the following table, or a `None`.
+///
+/// | Platform | Value                                         | Example                                  |
+/// | -------- | --------------------------------------------- | ---------------------------------------- |
+/// | Linux    | `$XDG_CACHE_HOME`/iroh or `$HOME`/.cache/iroh | /home/.cache/iroh                        |
+/// | macOS    | `$HOME`/Library/Caches/iroh                   | /Users/Alice/Library/Caches/iroh         |
+/// | Windows  | `{FOLDERID_LocalAppData}/iroh`                | C:\Users\Alice\AppData\Roaming\iroh      |
+pub fn iroh_cache_root() -> Result<PathBuf> {
+    let path = dirs_next::cache_dir().ok_or_else(|| {
+        anyhow!("operating environment provides no directory for application data")
+    })?;
+    Ok(path.join(IROH_DIR))
+}
+
+/// Path that leads to a file in the iroh cache directory.
+pub fn iroh_cache_path(file_name: &str) -> Result<PathBuf> {
+    let path = iroh_cache_root()?.join(file_name);
     Ok(path)
 }
 
@@ -218,6 +243,7 @@ mod tests {
     fn test_iroh_config_path() {
         let got = iroh_config_path("foo.bar").unwrap();
         let got = got.to_str().unwrap().to_string();
+        let got = got.replace('\\', "/"); // handle windows paths
         assert!(got.ends_with("/iroh/foo.bar"));
     }
 }

@@ -10,12 +10,26 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.60.0"
 name = "concolor-query"
-version = "0.0.5"
-include = ["src/**/*", "Cargo.toml", "LICENSE*", "README.md", "examples/**/*"]
+version = "0.1.0"
+include = [
+    "src/**/*",
+    "Cargo.toml",
+    "LICENSE*",
+    "README.md",
+    "examples/**/*",
+]
 description = "Look up colored console capabilities"
-keywords = ["cli", "color", "no-std", "terminal", "ansi"]
+readme = "README.md"
+keywords = [
+    "cli",
+    "color",
+    "no-std",
+    "terminal",
+    "ansi",
+]
 categories = ["command-line-interface"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-cli/concolor"

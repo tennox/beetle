@@ -431,7 +431,7 @@ impl Config {
             None => {
                 let mut t = getenv_unwrap("TARGET");
                 if t.ends_with("-darwin") && self.uses_cxx11 {
-                    t = t + "11"
+                    t += "11"
                 }
                 t
             }
@@ -443,6 +443,55 @@ impl Config {
         if !self.defined("CMAKE_TOOLCHAIN_FILE") {
             if let Some(s) = self.getenv_target_os("CMAKE_TOOLCHAIN_FILE") {
                 self.define("CMAKE_TOOLCHAIN_FILE", s);
+            } else {
+                if target.contains("redox") {
+                    if !self.defined("CMAKE_SYSTEM_NAME") {
+                        self.define("CMAKE_SYSTEM_NAME", "Generic");
+                    }
+                } else if target != host && !self.defined("CMAKE_SYSTEM_NAME") {
+                    // Set CMAKE_SYSTEM_NAME and CMAKE_SYSTEM_PROCESSOR when cross compiling
+                    let os = getenv_unwrap("CARGO_CFG_TARGET_OS");
+                    let arch = getenv_unwrap("CARGO_CFG_TARGET_ARCH");
+                    // CMAKE_SYSTEM_NAME list
+                    // https://gitlab.kitware.com/cmake/cmake/-/issues/21489#note_1077167
+                    //
+                    // CMAKE_SYSTEM_PROCESSOR
+                    // some of the values come from https://en.wikipedia.org/wiki/Uname
+                    let (system_name, system_processor) = match (os.as_str(), arch.as_str()) {
+                        ("android", arch) => ("Android", arch),
+                        ("dragonfly", arch) => ("DragonFly", arch),
+                        ("macos", "x86_64") => ("Darwin", "x86_64"),
+                        ("macos", "aarch64") => ("Darwin", "arm64"),
+                        ("freebsd", "x86_64") => ("FreeBSD", "amd64"),
+                        ("freebsd", arch) => ("FreeBSD", arch),
+                        ("fuchsia", arch) => ("Fuchsia", arch),
+                        ("haiku", arch) => ("Haiku", arch),
+                        ("ios", "aarch64") => ("iOS", "arm64"),
+                        ("ios", arch) => ("iOS", arch),
+                        ("linux", arch) => {
+                            let name = "Linux";
+                            match arch {
+                                "powerpc" => (name, "ppc"),
+                                "powerpc64" => (name, "ppc64"),
+                                "powerpc64le" => (name, "ppc64le"),
+                                _ => (name, arch),
+                            }
+                        }
+                        ("netbsd", arch) => ("NetBSD", arch),
+                        ("openbsd", "x86_64") => ("OpenBSD", "amd64"),
+                        ("openbsd", arch) => ("OpenBSD", arch),
+                        ("solaris", arch) => ("SunOS", arch),
+                        ("tvos", arch) => ("tvOS", arch),
+                        ("watchos", arch) => ("watchOS", arch),
+                        ("windows", "x86_64") => ("Windows", "AMD64"),
+                        ("windows", "i686") => ("Windows", "X86"),
+                        ("windows", "aarch64") => ("Windows", "ARM64"),
+                        // Others
+                        (os, arch) => (os, arch),
+                    };
+                    self.define("CMAKE_SYSTEM_NAME", system_name);
+                    self.define("CMAKE_SYSTEM_PROCESSOR", system_processor);
+                }
             }
         }
 
@@ -495,7 +544,7 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from(getenv_unwrap("OUT_DIR")));
         let build = dst.join("build");
         self.maybe_clear(&build);
-        let _ = fs::create_dir(&build);
+        let _ = fs::create_dir_all(&build);
 
         // Add all our dependencies to our cmake paths
         let mut cmake_prefix_path = Vec::new();
@@ -507,15 +556,14 @@ impl Config {
         }
         let system_prefix = self
             .getenv_target_os("CMAKE_PREFIX_PATH")
-            .unwrap_or(OsString::new());
-        cmake_prefix_path.extend(env::split_paths(&system_prefix).map(|s| s.to_owned()));
+            .unwrap_or_default();
+        cmake_prefix_path.extend(env::split_paths(&system_prefix));
         let cmake_prefix_path = env::join_paths(&cmake_prefix_path).unwrap();
 
         // Build up the first cmake command to build the build system.
-        let executable = self
-            .getenv_target_os("CMAKE")
-            .unwrap_or(OsString::from("cmake"));
-        let mut cmd = Command::new(&executable);
+        let mut cmd = self.cmake_configure_command(&target);
+
+        let version = Version::from_command(cmd.get_program()).unwrap_or_default();
 
         if self.verbose_cmake {
             cmd.arg("-Wdev");
@@ -562,9 +610,6 @@ impl Config {
                 // variables which will hopefully get things to succeed. Some
                 // systems may need the `windres` or `dlltool` variables set, so
                 // set them if possible.
-                if !self.defined("CMAKE_SYSTEM_NAME") {
-                    cmd.arg("-DCMAKE_SYSTEM_NAME=Windows");
-                }
                 if !self.defined("CMAKE_RC_COMPILER") {
                     let exe = find_exe(c_compiler.path());
                     if let Some(name) = exe.file_name().unwrap().to_str() {
@@ -582,13 +627,14 @@ impl Config {
             // If we're on MSVC we need to be sure to use the right generator or
             // otherwise we won't get 32/64 bit correct automatically.
             // This also guarantees that NMake generator isn't chosen implicitly.
-            let using_nmake_generator;
-            if generator.is_none() {
-                cmd.arg("-G").arg(self.visual_studio_generator(&target));
-                using_nmake_generator = false;
-            } else {
-                using_nmake_generator = generator.as_ref().unwrap() == "NMake Makefiles";
-            }
+            let using_nmake_generator = {
+                if generator.is_none() {
+                    cmd.arg("-G").arg(self.visual_studio_generator(&target));
+                    false
+                } else {
+                    generator.as_ref().unwrap() == "NMake Makefiles"
+                }
+            };
             if !is_ninja && !using_nmake_generator {
                 if target.contains("x86_64") {
                     if self.generator_toolset.is_none() {
@@ -606,36 +652,29 @@ impl Config {
                     }
                     cmd.arg("-AARM64");
                 } else if target.contains("i686") {
-                    use cc::windows_registry::{find_vs_version, VsVers};
-                    match find_vs_version() {
-                        Ok(VsVers::Vs16) => {
-                            // 32-bit x86 toolset used to be the default for all hosts,
-                            // but Visual Studio 2019 changed the default toolset to match the host,
-                            // so we need to manually override it for x86 targets
-                            if self.generator_toolset.is_none() {
-                                cmd.arg("-Thost=x86");
-                            }
-                            cmd.arg("-AWin32");
-                        }
-                        _ => {}
-                    };
+                    if self.generator_toolset.is_none() {
+                        cmd.arg("-Thost=x86");
+                    }
+                    cmd.arg("-AWin32");
                 } else {
                     panic!("unsupported msvc target: {}", target);
                 }
-            }
-        } else if target.contains("redox") {
-            if !self.defined("CMAKE_SYSTEM_NAME") {
-                cmd.arg("-DCMAKE_SYSTEM_NAME=Generic");
-            }
-        } else if target.contains("solaris") {
-            if !self.defined("CMAKE_SYSTEM_NAME") {
-                cmd.arg("-DCMAKE_SYSTEM_NAME=SunOS");
             }
         } else if target.contains("apple-ios") || target.contains("apple-tvos") {
             // These two flags prevent CMake from adding an OSX sysroot, which messes up compilation.
             if !self.defined("CMAKE_OSX_SYSROOT") && !self.defined("CMAKE_OSX_DEPLOYMENT_TARGET") {
                 cmd.arg("-DCMAKE_OSX_SYSROOT=/");
                 cmd.arg("-DCMAKE_OSX_DEPLOYMENT_TARGET=");
+            }
+        } else if target.contains("darwin") {
+            if !self.defined("CMAKE_OSX_ARCHITECTURES") {
+                if target.contains("x86_64") {
+                    cmd.arg("-DCMAKE_OSX_ARCHITECTURES=x86_64");
+                } else if target.contains("aarch64") {
+                    cmd.arg("-DCMAKE_OSX_ARCHITECTURES=arm64");
+                } else {
+                    panic!("unsupported darwin target: {}", target);
+                }
             }
         }
         if let Some(ref generator) = generator {
@@ -783,8 +822,7 @@ impl Config {
         }
 
         // And build!
-        let target = self.cmake_target.clone().unwrap_or("install".to_string());
-        let mut cmd = Command::new(&executable);
+        let mut cmd = self.cmake_build_command(&target);
         cmd.current_dir(&build);
 
         for &(ref k, ref v) in c_compiler.env().iter().chain(&self.env) {
@@ -792,6 +830,7 @@ impl Config {
         }
 
         // If the generated project is Makefile based we should carefully transfer corresponding CARGO_MAKEFLAGS
+        let mut use_jobserver = false;
         if fs::metadata(&build.join("Makefile")).is_ok() {
             match env::var_os("CARGO_MAKEFLAGS") {
                 // Only do this on non-windows and non-bsd
@@ -806,6 +845,7 @@ impl Config {
                         || cfg!(target_os = "bitrig")
                         || cfg!(target_os = "dragonflybsd")) =>
                 {
+                    use_jobserver = true;
                     cmd.env("MAKEFLAGS", makeflags);
                 }
                 _ => {}
@@ -815,14 +855,22 @@ impl Config {
         cmd.arg("--build").arg(".");
 
         if !self.no_build_target {
+            let target = self
+                .cmake_target
+                .clone()
+                .unwrap_or_else(|| "install".to_string());
             cmd.arg("--target").arg(target);
         }
 
         cmd.arg("--config").arg(&profile);
 
-        if let Ok(s) = env::var("NUM_JOBS") {
-            // See https://cmake.org/cmake/help/v3.12/manual/cmake.1.html#build-tool-mode
-            cmd.arg("--parallel").arg(s);
+        // --parallel requires CMake 3.12:
+        // https://cmake.org/cmake/help/latest/release/3.12.html#command-line
+        if version >= Version::new(3, 12) && !use_jobserver {
+            if let Ok(s) = env::var("NUM_JOBS") {
+                // See https://cmake.org/cmake/help/v3.12/manual/cmake.1.html#build-tool-mode
+                cmd.arg("--parallel").arg(s);
+            }
         }
 
         if !&self.build_args.is_empty() {
@@ -832,7 +880,42 @@ impl Config {
         run(&mut cmd, "cmake");
 
         println!("cargo:root={}", dst.display());
-        return dst;
+        dst
+    }
+
+    fn cmake_executable(&mut self) -> OsString {
+        self.getenv_target_os("CMAKE")
+            .unwrap_or_else(|| OsString::from("cmake"))
+    }
+
+    // If we are building for Emscripten, wrap the calls to CMake
+    // as "emcmake cmake ..." and "emmake cmake --build ...".
+    // https://emscripten.org/docs/compiling/Building-Projects.html
+
+    fn cmake_configure_command(&mut self, target: &str) -> Command {
+        if target.contains("emscripten") {
+            let emcmake = self
+                .getenv_target_os("EMCMAKE")
+                .unwrap_or_else(|| OsString::from("emcmake"));
+            let mut cmd = Command::new(emcmake);
+            cmd.arg(self.cmake_executable());
+            cmd
+        } else {
+            Command::new(self.cmake_executable())
+        }
+    }
+
+    fn cmake_build_command(&mut self, target: &str) -> Command {
+        if target.contains("emscripten") {
+            let emmake = self
+                .getenv_target_os("EMMAKE")
+                .unwrap_or_else(|| OsString::from("emmake"));
+            let mut cmd = Command::new(emmake);
+            cmd.arg(self.cmake_executable());
+            cmd
+        } else {
+            Command::new(self.cmake_executable())
+        }
     }
 
     fn getenv_os(&mut self, v: &str) -> Option<OsString> {
@@ -854,7 +937,7 @@ impl Config {
             .unwrap_or_else(|| getenv_unwrap("TARGET"));
 
         let kind = if host == target { "HOST" } else { "TARGET" };
-        let target_u = target.replace("-", "_");
+        let target_u = target.replace('-', "_");
         self.getenv_os(&format!("{}_{}", var_base, target))
             .or_else(|| self.getenv_os(&format!("{}_{}", var_base, target_u)))
             .or_else(|| self.getenv_os(&format!("{}_{}", kind, var_base)))
@@ -903,7 +986,7 @@ impl Config {
         // CMake will apparently store canonicalized paths which normally
         // isn't relevant to us but we canonicalize it here to ensure
         // we're both checking the same thing.
-        let path = fs::canonicalize(&self.path).unwrap_or(self.path.clone());
+        let path = fs::canonicalize(&self.path).unwrap_or_else(|_| self.path.clone());
         let mut f = match File::open(dir.join("CMakeCache.txt")) {
             Ok(f) => f,
             Err(..) => return,
@@ -937,6 +1020,52 @@ impl Config {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Version {
+    major: u32,
+    minor: u32,
+}
+
+impl Version {
+    fn new(major: u32, minor: u32) -> Self {
+        Self { major, minor }
+    }
+
+    fn parse(s: &str) -> Option<Self> {
+        // As of 3.22, the format of the version output is "cmake version <major>.<minor>.<patch>".
+        // ```
+        // $ cmake --version
+        // cmake version 3.22.2
+        //
+        // CMake suite maintained and supported by Kitware (kitware.com/cmake).
+        // ```
+        let version = s.lines().next()?.strip_prefix("cmake version ")?;
+        let mut digits = version.splitn(3, '.'); // split version string to major minor patch
+        let major = digits.next()?.parse::<u32>().ok()?;
+        let minor = digits.next()?.parse::<u32>().ok()?;
+        // Ignore the patch version because it does not change the API.
+        Some(Version::new(major, minor))
+    }
+
+    fn from_command(executable: &OsStr) -> Option<Self> {
+        let output = Command::new(executable).arg("--version").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let stdout = core::str::from_utf8(&output.stdout).ok()?;
+        Self::parse(stdout)
+    }
+}
+
+impl Default for Version {
+    fn default() -> Self {
+        // If the version parsing fails, we assume that it is the latest known
+        // version. This is because the failure of version parsing may be due to
+        // the version output being changed.
+        Self::new(3, 22)
+    }
+}
+
 fn run(cmd: &mut Command, program: &str) {
     println!("running: {:?}", cmd);
     let status = match cmd.status() {
@@ -958,10 +1087,10 @@ fn run(cmd: &mut Command, program: &str) {
 }
 
 fn find_exe(path: &Path) -> PathBuf {
-    env::split_paths(&env::var_os("PATH").unwrap_or(OsString::new()))
+    env::split_paths(&env::var_os("PATH").unwrap_or_default())
         .map(|p| p.join(path))
         .find(|p| fs::metadata(p).is_ok())
-        .unwrap_or(path.to_owned())
+        .unwrap_or_else(|| path.to_owned())
 }
 
 fn getenv_unwrap(v: &str) -> String {
@@ -973,4 +1102,23 @@ fn getenv_unwrap(v: &str) -> String {
 
 fn fail(s: &str) -> ! {
     panic!("\n{}\n\nbuild script failed, must exit now", s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Version;
+
+    #[test]
+    fn test_cmake_version() {
+        let text = "cmake version 3.22.2
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+";
+        let v = Version::parse(text).unwrap();
+        assert_eq!(v, Version::new(3, 22));
+        assert!(Version::new(3, 22) > Version::new(3, 21));
+        assert!(Version::new(3, 22) < Version::new(3, 23));
+
+        let _v = Version::from_command("cmake".as_ref()).unwrap();
+    }
 }

@@ -12,9 +12,14 @@ cargo update $@
 
 cargo vendor -- third-party > .cargo/config
 
-echo "" >> .cargo/config
-echo "[alias]" >> .cargo/config
-echo 'xtask = "run --package xtask --"' >> .cargo/config
+cat <<EOF >> .cargo/config
+
+[alias]
+xtask = "run --package xtask --"
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+EOF
 
 echo "Before rm: `du -h -d 0 third-party`"
 

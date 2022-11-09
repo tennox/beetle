@@ -10,13 +10,13 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
 rust-version = "1.56"
 name = "pest"
-version = "2.4.0"
+version = "2.4.1"
 authors = ["Dragoș Tiselice <dragostiselice@gmail.com>"]
 description = "The Elegant Parser"
-homepage = "https://pest-parser.github.io/"
+homepage = "https://pest.rs/"
 documentation = "https://docs.rs/pest"
 readme = "_README.md"
 keywords = [
@@ -38,19 +38,19 @@ version = "2"
 optional = true
 
 [dependencies.serde]
-version = "1.0.89"
+version = "1.0.145"
 optional = true
 
 [dependencies.serde_json]
-version = "1.0.39"
+version = "1.0.85"
 optional = true
 
 [dependencies.thiserror]
-version = "1.0.31"
+version = "1.0.37"
 optional = true
 
 [dependencies.ucd-trie]
-version = "0.1.1"
+version = "0.1.5"
 default-features = false
 
 [features]

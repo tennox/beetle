@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "libm"
-version = "0.2.5"
+version = "0.2.6"
 authors = ["Jorge Aparicio <jorge@japaric.io>"]
 description = "libm in pure Rust"
 documentation = "https://docs.rs/libm"
@@ -24,7 +24,6 @@ keywords = [
 categories = ["no-std"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-lang/libm"
-resolver = "1"
 
 [profile.release]
 lto = "fat"

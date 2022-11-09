@@ -2,6 +2,7 @@ use std::{
     fmt::Debug,
     path::{Path, PathBuf},
     pin::Pin,
+    sync::Arc,
 };
 
 use anyhow::{ensure, Result};
@@ -9,7 +10,8 @@ use async_recursion::async_recursion;
 use async_trait::async_trait;
 use bytes::Bytes;
 use cid::Cid;
-use futures::{stream::LocalBoxStream, Stream, StreamExt};
+use futures::stream::TryStreamExt;
+use futures::{future, stream::LocalBoxStream, Stream, StreamExt};
 use iroh_rpc_client::Client;
 use prost::Message;
 use tokio::io::AsyncRead;
@@ -28,6 +30,9 @@ use crate::{
 // (64 bytes + 256 bytes + 8 bytes) / 2 MB ≈ 6400
 // adding a generous buffer, we are using 6k as our link limit
 const DIRECTORY_LINK_LIMIT: usize = 6000;
+
+/// How many chunks to buffer up when adding content.
+const _ADD_PAR: usize = 24;
 
 #[derive(Debug, PartialEq)]
 enum DirectoryType {
@@ -489,34 +494,69 @@ pub(crate) fn encode_unixfs_pb(
 }
 
 #[async_trait]
-pub trait Store {
+pub trait Store: 'static + Send + Sync + Clone {
+    async fn has(&self, &cid: Cid) -> Result<bool>;
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<()>;
+    async fn put_many(&self, blocks: Vec<Block>) -> Result<()>;
 }
 
 #[async_trait]
-impl Store for &Client {
+impl Store for Client {
+    async fn has(&self, cid: Cid) -> Result<bool> {
+        self.try_store()?.has(cid).await
+    }
+
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<()> {
         self.try_store()?.put(cid, blob, links).await
     }
+
+    async fn put_many(&self, blocks: Vec<Block>) -> Result<()> {
+        self.try_store()?
+            .put_many(blocks.into_iter().map(|x| x.into_parts()).collect())
+            .await
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StoreAndProvideClient {
     pub client: Client,
 }
 
 #[async_trait]
 impl Store for StoreAndProvideClient {
+    async fn has(&self, cid: Cid) -> Result<bool> {
+        self.client.try_store()?.has(cid).await
+    }
+
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<()> {
-        self.client.try_store()?.put(cid, blob, links).await?;
-        self.client.try_p2p()?.start_providing(&cid).await
+        self.client.try_store()?.put(cid, blob, links).await
+        // we provide after insertion is finished
+        // self.client.try_p2p()?.start_providing(&cid).await
+    }
+
+    async fn put_many(&self, blocks: Vec<Block>) -> Result<()> {
+        self.client
+            .try_store()?
+            .put_many(blocks.into_iter().map(|x| x.into_parts()).collect())
+            .await
     }
 }
 
 #[async_trait]
-impl Store for &tokio::sync::Mutex<std::collections::HashMap<Cid, Bytes>> {
+impl Store for Arc<tokio::sync::Mutex<std::collections::HashMap<Cid, Bytes>>> {
+    async fn has(&self, cid: Cid) -> Result<bool> {
+        Ok(self.lock().await.contains_key(&cid))
+    }
     async fn put(&self, cid: Cid, blob: Bytes, _links: Vec<Cid>) -> Result<()> {
         self.lock().await.insert(cid, blob);
+        Ok(())
+    }
+
+    async fn put_many(&self, blocks: Vec<Block>) -> Result<()> {
+        let mut this = self.lock().await;
+        for block in blocks {
+            this.insert(*block.cid(), block.data().clone());
+        }
         Ok(())
     }
 }
@@ -592,34 +632,78 @@ pub async fn add_symlink<S: Store>(
 
 /// An event on the add stream
 pub enum AddEvent {
-    /// Delta of progress in bytes
-    ProgressDelta(u64),
-    /// The root Cid of the added file, produced once in the end
-    Done(Cid),
+    ProgressDelta {
+        /// The current cid. This is the root on the last event.
+        cid: Cid,
+        /// Delta of progress in bytes
+        size: Option<u64>,
+    },
+}
+
+use async_stream::stream;
+
+fn add_blocks_to_store_chunked<S: Store>(
+    store: S,
+    mut blocks: Pin<Box<dyn Stream<Item = Result<Block>>>>,
+) -> impl Stream<Item = Result<AddEvent>> {
+    let mut chunk = Vec::new();
+    let mut chunk_size = 0u64;
+    const MAX_CHUNK_SIZE: u64 = 1024 * 1024 * 16;
+    stream! {
+        while let Some(block) = blocks.next().await {
+            let block = block?;
+            let block_size = block.data().len() as u64;
+            let cid = *block.cid();
+            let raw_data_size = block.raw_data_size();
+            tracing::info!("adding chunk of {} bytes", chunk_size);
+            if chunk_size + block_size > MAX_CHUNK_SIZE {
+                store.put_many(std::mem::take(&mut chunk)).await?;
+                chunk_size = 0;
+            }
+            chunk.push(block);
+            chunk_size += block_size;
+            yield Ok(AddEvent::ProgressDelta {
+                cid,
+                size: raw_data_size,
+            });
+        }
+        // make sure to also send the last chunk!
+        store.put_many(chunk).await?;
+    }
+}
+
+fn _add_blocks_to_store_single<S: Store>(
+    store: Option<S>,
+    blocks: Pin<Box<dyn Stream<Item = Result<Block>>>>,
+) -> impl Stream<Item = Result<AddEvent>> {
+    blocks
+        .and_then(|x| future::ok(vec![x]))
+        .map(move |blocks| {
+            let store = store.clone();
+            async move {
+                let block = blocks?[0].clone();
+                let raw_data_size = block.raw_data_size();
+                let cid = *block.cid();
+                if let Some(store) = store {
+                    if !store.has(cid).await? {
+                        store.put_many(vec![block]).await?;
+                    }
+                }
+
+                Ok(AddEvent::ProgressDelta {
+                    cid,
+                    size: raw_data_size,
+                })
+            }
+        })
+        .buffered(_ADD_PAR)
 }
 
 pub async fn add_blocks_to_store<S: Store>(
     store: Option<S>,
-    mut blocks: Pin<Box<dyn Stream<Item = Result<Block>>>>,
+    blocks: Pin<Box<dyn Stream<Item = Result<Block>>>>,
 ) -> impl Stream<Item = Result<AddEvent>> {
-    async_stream::try_stream! {
-
-        let mut root = None;
-        while let Some(block) = blocks.next().await {
-            let block = block?;
-            let raw_data_size = block.raw_data_size();
-            let (cid, bytes, links) = block.into_parts();
-            if let Some(ref store) = store {
-                store.put(cid, bytes, links).await?;
-            }
-            if let Some(raw_data_size) = raw_data_size {
-                yield AddEvent::ProgressDelta(raw_data_size);
-            }
-            root = Some(cid);
-        }
-
-        yield AddEvent::Done(root.expect("missing root"))
-    }
+    add_blocks_to_store_chunked(store.unwrap(), blocks)
 }
 
 #[async_recursion(?Send)]
@@ -631,6 +715,7 @@ async fn make_dir_from_path<P: Into<PathBuf>>(path: P) -> Result<Directory> {
             .and_then(|s| s.to_str())
             .unwrap_or_default(),
     );
+
     let mut directory_reader = tokio::fs::read_dir(path.clone()).await?;
     while let Some(entry) = directory_reader.next_entry().await? {
         let path = entry.path();
@@ -662,7 +747,6 @@ mod tests {
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
     use std::{collections::BTreeMap, io::prelude::*, sync::Arc};
-    use tempfile;
     use tokio::io::AsyncReadExt;
 
     #[tokio::test]
@@ -950,9 +1034,10 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn symlink_from_disk_test() -> Result<()> {
-        let temp_dir = tempfile::tempdir()?;
+        let temp_dir = ::tempfile::tempdir()?;
         let expect_name = "path_to_symlink";
         let expect_target = temp_dir.path().join("path_to_target");
         let expect_path = temp_dir.path().join(expect_name);

@@ -12,6 +12,7 @@ use iroh_one::{
     cli::Args,
     config::{Config, ENV_PREFIX},
 };
+use iroh_resolver::racing::RacingLoader;
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_types::Addr;
 #[cfg(not(target_os = "android"))]
@@ -19,9 +20,8 @@ use iroh_util::iroh_config_path;
 use iroh_util::make_config;
 use iroh_util::lock::ProgramLock;
 #[cfg(feature = "uds-gateway")]
-use tempdir::TempDir;
+use tempfile::TempDir;
 use tokio::sync::RwLock;
-use tracing::{debug, error};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
@@ -29,12 +29,7 @@ async fn main() -> Result<()> {
     android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Debug));
 
     let mut lock = ProgramLock::new("iroh-one")?;
-    if lock.is_locked() {
-        println!("iroh-one is already running, stopping.");
-        return Ok(());
-    } else {
-        lock.acquire()?;
-    }
+    lock.acquire_or_exit();
 
     let args = Args::parse();
 
@@ -61,8 +56,8 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     {
         match iroh_util::increase_fd_limit() {
-            Ok(soft) => debug!("NOFILE limit: soft = {}", soft),
-            Err(err) => error!("Error increasing NOFILE limit: {}", err),
+            Ok(soft) => tracing::debug!("NOFILE limit: soft = {}", soft),
+            Err(err) => tracing::error!("Error increasing NOFILE limit: {}", err),
         }
     }
 
@@ -97,15 +92,14 @@ async fn main() -> Result<()> {
         .server_rpc_addr()?
         .ok_or_else(|| anyhow!("missing gateway rpc addr"))?;
 
-    let bad_bits = match config.gateway.denylist {
+    let bad_bits = match config.gateway.use_denylist {
         true => Arc::new(Some(RwLock::new(BadBits::new()))),
         false => Arc::new(None),
     };
 
-    // let content_loader = RpcClient::new(config.rpc_client.clone()).await?;
-    let content_loader = iroh_one::content_loader::RacingLoader::new(
+    let content_loader = RacingLoader::new(
         RpcClient::new(config.rpc_client.clone()).await?,
-        config.resolver_gateway.clone(),
+        config.gateway.http_resolvers.clone().unwrap_or_default(),
     );
     let shared_state = Core::make_state(
         Arc::new(config.clone()),
@@ -132,7 +126,7 @@ async fn main() -> Result<()> {
 
     #[cfg(feature = "uds-gateway")]
     let uds_server_task = {
-        let mut path = TempDir::new("iroh")?.path().join("ipfsd.http");
+        let mut path = TempDir::new()?.path().join("ipfsd.http");
         if let Some(uds_path) = config.gateway_uds_path {
             path = uds_path;
         } else {

@@ -1,17 +1,22 @@
 //! Signatures (e.g. CA signatures over SSH certificates)
 
-use crate::{
-    checked::CheckedSum, decode::Decode, encode::Encode, private, public, reader::Reader,
-    writer::Writer, Algorithm, Error, MPInt, PrivateKey, PublicKey, Result,
-};
+use crate::{private, public, Algorithm, Error, MPInt, PrivateKey, PublicKey, Result};
 use alloc::vec::Vec;
 use core::fmt;
+use encoding::{CheckedSum, Decode, Encode, Reader, Writer};
 use signature::{Signer, Verifier};
 
 #[cfg(feature = "ed25519")]
 use crate::{private::Ed25519Keypair, public::Ed25519PublicKey};
 
-#[cfg(feature = "p256")]
+#[cfg(feature = "dsa")]
+use {
+    crate::{private::DsaKeypair, public::DsaPublicKey},
+    sha1::{Digest, Sha1},
+    signature::{DigestSigner, DigestVerifier, Signature as _},
+};
+
+#[cfg(any(feature = "p256", feature = "p384"))]
 use crate::{
     private::{EcdsaKeypair, EcdsaPrivateKey},
     public::EcdsaPublicKey,
@@ -21,17 +26,38 @@ use crate::{
 #[cfg(feature = "rsa")]
 use {
     crate::{private::RsaKeypair, public::RsaPublicKey, HashAlg},
-    rsa::PublicKey as _,
-    sha2::{Digest, Sha256, Sha512},
+    sha2::{Sha256, Sha512},
 };
 
 const DSA_SIGNATURE_SIZE: usize = 40;
 const ED25519_SIGNATURE_SIZE: usize = 64;
 
-/// Digital signature (e.g. DSA, ECDSA, Ed25519).
+/// Trait for signing keys which produce a [`Signature`].
 ///
-/// These are used as part of the OpenSSH certificate format to represent
-/// signatures by certificate authorities (CAs).
+/// This trait is automatically impl'd for any types which impl the
+/// [`Signer`] trait for the SSH [`Signature`] type and also support a [`From`]
+/// conversion for [`public::KeyData`].
+pub trait SigningKey: Signer<Signature> {
+    /// Get the [`public::KeyData`] for this signing key.
+    fn public_key(&self) -> public::KeyData;
+}
+
+impl<T> SigningKey for T
+where
+    T: Signer<Signature>,
+    public::KeyData: for<'a> From<&'a T>,
+{
+    fn public_key(&self) -> public::KeyData {
+        self.into()
+    }
+}
+
+/// Low-level digital signature (e.g. DSA, ECDSA, Ed25519).
+///
+/// These are low-level signatures used as part of the OpenSSH certificate
+/// format to represent signatures by certificate authorities (CAs), as well
+/// as the higher-level [`SshSig`][`crate::SshSig`] format, which provides
+/// general-purpose signing functionality using SSH keys.
 ///
 /// From OpenSSH's [PROTOCOL.certkeys] specification:
 ///
@@ -64,7 +90,7 @@ impl Signature {
     /// format the raw signature data for a given algorithm.
     ///
     /// # Returns
-    /// - [`Error::Length`] if the signature is not the correct length.
+    /// - [`Error::Encoding`] if the signature is not the correct length.
     pub fn new(algorithm: Algorithm, data: impl Into<Vec<u8>>) -> Result<Self> {
         let data = data.into();
 
@@ -80,20 +106,30 @@ impl Signature {
                     if component.as_positive_bytes().ok_or(Error::Crypto)?.len()
                         != curve.field_size()
                     {
-                        return Err(Error::Length);
+                        return Err(encoding::Error::Length.into());
                     }
                 }
 
                 if !reader.is_finished() {
-                    return Err(Error::Length);
+                    return Err(encoding::Error::Length.into());
                 }
             }
             Algorithm::Ed25519 if data.len() == ED25519_SIGNATURE_SIZE => (),
             Algorithm::Rsa { hash: Some(_) } => (),
-            _ => return Err(Error::Length),
+            _ => return Err(encoding::Error::Length.into()),
         }
 
         Ok(Self { algorithm, data })
+    }
+
+    /// Get the [`Algorithm`] associated with this signature.
+    pub fn algorithm(&self) -> Algorithm {
+        self.algorithm
+    }
+
+    /// Get the raw signature as bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
     }
 
     /// Placeholder signature used by the certificate builder.
@@ -112,18 +148,6 @@ impl Signature {
     }
 }
 
-impl Signature {
-    /// Get the [`Algorithm`] associated with this signature.
-    pub fn algorithm(&self) -> Algorithm {
-        self.algorithm
-    }
-
-    /// Get the raw signature as bytes.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.data
-    }
-}
-
 impl AsRef<[u8]> for Signature {
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
@@ -131,6 +155,8 @@ impl AsRef<[u8]> for Signature {
 }
 
 impl Decode for Signature {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         let algorithm = Algorithm::decode(reader)?;
         let data = Vec::decode(reader)?;
@@ -139,22 +165,24 @@ impl Decode for Signature {
 }
 
 impl Encode for Signature {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        [
+        Ok([
             self.algorithm().encoded_len()?,
-            4, // signature data length prefix (uint32)
-            self.as_bytes().len(),
+            self.as_bytes().encoded_len()?,
         ]
-        .checked_sum()
+        .checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
         if self.is_placeholder() {
-            return Err(Error::Length);
+            return Err(encoding::Error::Length.into());
         }
 
         self.algorithm().encode(writer)?;
-        self.as_bytes().encode(writer)
+        self.as_bytes().encode(writer)?;
+        Ok(())
     }
 }
 
@@ -211,7 +239,9 @@ impl Signer<Signature> for private::KeypairData {
     #[allow(unused_variables)]
     fn try_sign(&self, message: &[u8]) -> signature::Result<Signature> {
         match self {
-            #[cfg(feature = "p256")]
+            #[cfg(feature = "dsa")]
+            Self::Dsa(keypair) => keypair.try_sign(message),
+            #[cfg(any(feature = "p256", feature = "p384"))]
             Self::Ecdsa(keypair) => keypair.try_sign(message),
             #[cfg(feature = "ed25519")]
             Self::Ed25519(keypair) => keypair.try_sign(message),
@@ -232,12 +262,46 @@ impl Verifier<Signature> for public::KeyData {
     #[allow(unused_variables)]
     fn verify(&self, message: &[u8], signature: &Signature) -> signature::Result<()> {
         match self {
-            #[cfg(feature = "p256")]
+            #[cfg(feature = "dsa")]
+            Self::Dsa(pk) => pk.verify(message, signature),
+            #[cfg(any(feature = "p256", feature = "p384"))]
             Self::Ecdsa(pk) => pk.verify(message, signature),
             #[cfg(feature = "ed25519")]
             Self::Ed25519(pk) => pk.verify(message, signature),
             #[cfg(feature = "rsa")]
             Self::Rsa(pk) => pk.verify(message, signature),
+            _ => Err(signature::Error::new()),
+        }
+    }
+}
+
+#[cfg(feature = "dsa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dsa")))]
+impl Signer<Signature> for DsaKeypair {
+    fn try_sign(&self, message: &[u8]) -> signature::Result<Signature> {
+        let data = dsa::SigningKey::try_from(self)?
+            .try_sign_digest(Sha1::new_with_prefix(message))
+            .map_err(|_| signature::Error::new())?;
+
+        Ok(Signature {
+            algorithm: Algorithm::Dsa,
+            data: data.as_ref().to_vec(),
+        })
+    }
+}
+
+#[cfg(feature = "dsa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dsa")))]
+impl Verifier<Signature> for DsaPublicKey {
+    fn verify(&self, message: &[u8], signature: &Signature) -> signature::Result<()> {
+        match signature.algorithm {
+            Algorithm::Dsa => {
+                let signature = dsa::Signature::from_bytes(&signature.data)?;
+
+                dsa::VerifyingKey::try_from(self)?
+                    .verify_digest(Sha1::new_with_prefix(message), &signature)
+                    .map_err(|_| signature::Error::new())
+            }
             _ => Err(signature::Error::new()),
         }
     }
@@ -298,20 +362,58 @@ impl TryFrom<p256::ecdsa::Signature> for Signature {
     }
 }
 
+#[cfg(feature = "p384")]
+#[cfg_attr(docsrs, doc(cfg(feature = "p384")))]
+impl TryFrom<p384::ecdsa::Signature> for Signature {
+    type Error = Error;
+
+    fn try_from(signature: p384::ecdsa::Signature) -> Result<Signature> {
+        Signature::try_from(&signature)
+    }
+}
+
 #[cfg(feature = "p256")]
 #[cfg_attr(docsrs, doc(cfg(feature = "p256")))]
 impl TryFrom<&p256::ecdsa::Signature> for Signature {
     type Error = Error;
 
     fn try_from(signature: &p256::ecdsa::Signature) -> Result<Signature> {
-        let (r, s) = signature.as_ref().split_at(32);
-        let mut data = Vec::with_capacity(74); // 32 * 2 + 4 * 2 + 1 * 2
+        const FIELD_SIZE: usize = 32;
+        let (r, s) = signature.as_ref().split_at(FIELD_SIZE);
+
+        #[allow(clippy::integer_arithmetic)]
+        let mut data = Vec::with_capacity(FIELD_SIZE * 2 + 4 * 2 + 2);
+
         MPInt::from_positive_bytes(r)?.encode(&mut data)?;
         MPInt::from_positive_bytes(s)?.encode(&mut data)?;
 
         Ok(Signature {
             algorithm: Algorithm::Ecdsa {
                 curve: EcdsaCurve::NistP256,
+            },
+            data,
+        })
+    }
+}
+
+#[cfg(feature = "p384")]
+#[cfg_attr(docsrs, doc(cfg(feature = "p384")))]
+impl TryFrom<&p384::ecdsa::Signature> for Signature {
+    type Error = Error;
+
+    fn try_from(signature: &p384::ecdsa::Signature) -> Result<Signature> {
+        const FIELD_SIZE: usize = 48;
+        let (r, s) = signature.as_ref().split_at(FIELD_SIZE);
+
+        #[allow(clippy::integer_arithmetic)]
+        let mut data = Vec::with_capacity(FIELD_SIZE * 2 + 4 * 2 + 2);
+
+        MPInt::from_positive_bytes(r)?.encode(&mut data)?;
+        MPInt::from_positive_bytes(s)?.encode(&mut data)?;
+
+        Ok(Signature {
+            algorithm: Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP384,
             },
             data,
         })
@@ -328,12 +430,24 @@ impl TryFrom<Signature> for p256::ecdsa::Signature {
     }
 }
 
+#[cfg(feature = "p384")]
+#[cfg_attr(docsrs, doc(cfg(feature = "p384")))]
+impl TryFrom<Signature> for p384::ecdsa::Signature {
+    type Error = Error;
+
+    fn try_from(signature: Signature) -> Result<p384::ecdsa::Signature> {
+        p384::ecdsa::Signature::try_from(&signature)
+    }
+}
+
 #[cfg(feature = "p256")]
 #[cfg_attr(docsrs, doc(cfg(feature = "p256")))]
 impl TryFrom<&Signature> for p256::ecdsa::Signature {
     type Error = Error;
 
     fn try_from(signature: &Signature) -> Result<p256::ecdsa::Signature> {
+        const FIELD_SIZE: usize = 32;
+
         match signature.algorithm {
             Algorithm::Ecdsa {
                 curve: EcdsaCurve::NistP256,
@@ -343,7 +457,7 @@ impl TryFrom<&Signature> for p256::ecdsa::Signature {
                 let s = MPInt::decode(reader)?;
 
                 match (r.as_positive_bytes(), s.as_positive_bytes()) {
-                    (Some(r), Some(s)) if r.len() == 32 && s.len() == 32 => {
+                    (Some(r), Some(s)) if r.len() == FIELD_SIZE && s.len() == FIELD_SIZE => {
                         Ok(p256::ecdsa::Signature::from_scalars(
                             *p256::FieldBytes::from_slice(r),
                             *p256::FieldBytes::from_slice(s),
@@ -357,12 +471,46 @@ impl TryFrom<&Signature> for p256::ecdsa::Signature {
     }
 }
 
-#[cfg(feature = "p256")]
-#[cfg_attr(docsrs, doc(cfg(feature = "p256")))]
+#[cfg(feature = "p384")]
+#[cfg_attr(docsrs, doc(cfg(feature = "p384")))]
+impl TryFrom<&Signature> for p384::ecdsa::Signature {
+    type Error = Error;
+
+    fn try_from(signature: &Signature) -> Result<p384::ecdsa::Signature> {
+        const FIELD_SIZE: usize = 48;
+
+        match signature.algorithm {
+            Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP256,
+            } => {
+                let reader = &mut signature.as_bytes();
+                let r = MPInt::decode(reader)?;
+                let s = MPInt::decode(reader)?;
+
+                match (r.as_positive_bytes(), s.as_positive_bytes()) {
+                    (Some(r), Some(s)) if r.len() == FIELD_SIZE && s.len() == FIELD_SIZE => {
+                        Ok(p384::ecdsa::Signature::from_scalars(
+                            *p384::FieldBytes::from_slice(r),
+                            *p384::FieldBytes::from_slice(s),
+                        )?)
+                    }
+                    _ => Err(Error::Crypto),
+                }
+            }
+            _ => Err(Error::Algorithm),
+        }
+    }
+}
+
+#[cfg(any(feature = "p256", feature = "p384"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "p256", feature = "p384"))))]
 impl Signer<Signature> for EcdsaKeypair {
     fn try_sign(&self, message: &[u8]) -> signature::Result<Signature> {
         match self {
+            #[cfg(feature = "p256")]
             Self::NistP256 { private, .. } => private.try_sign(message),
+            #[cfg(feature = "p384")]
+            Self::NistP384 { private, .. } => private.try_sign(message),
             _ => Err(signature::Error::new()),
         }
     }
@@ -378,18 +526,37 @@ impl Signer<Signature> for EcdsaPrivateKey<32> {
     }
 }
 
-#[cfg(feature = "p256")]
-#[cfg_attr(docsrs, doc(cfg(feature = "p256")))]
+#[cfg(feature = "p384")]
+#[cfg_attr(docsrs, doc(cfg(feature = "p384")))]
+impl Signer<Signature> for EcdsaPrivateKey<48> {
+    fn try_sign(&self, message: &[u8]) -> signature::Result<Signature> {
+        Ok(p384::ecdsa::SigningKey::from_bytes(self.as_ref())?
+            .try_sign(message)?
+            .try_into()?)
+    }
+}
+
+#[cfg(any(feature = "p256", feature = "p384"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "p256", feature = "p384"))))]
 impl Verifier<Signature> for EcdsaPublicKey {
     fn verify(&self, message: &[u8], signature: &Signature) -> signature::Result<()> {
         match signature.algorithm {
-            Algorithm::Ecdsa {
-                curve: EcdsaCurve::NistP256,
-            } => {
-                let verifying_key = p256::ecdsa::VerifyingKey::try_from(self)?;
-                let signature = p256::ecdsa::Signature::try_from(signature)?;
-                verifying_key.verify(message, &signature)
-            }
+            Algorithm::Ecdsa { curve } => match curve {
+                #[cfg(feature = "p256")]
+                EcdsaCurve::NistP256 => {
+                    let verifying_key = p256::ecdsa::VerifyingKey::try_from(self)?;
+                    let signature = p256::ecdsa::Signature::try_from(signature)?;
+                    verifying_key.verify(message, &signature)
+                }
+                #[cfg(feature = "p384")]
+                EcdsaCurve::NistP384 => {
+                    let verifying_key = p384::ecdsa::VerifyingKey::try_from(self)?;
+                    let signature = p384::ecdsa::Signature::try_from(signature)?;
+                    verifying_key.verify(message, &signature)
+                }
+
+                _ => Err(signature::Error::new()),
+            },
             _ => Err(signature::Error::new()),
         }
     }
@@ -399,19 +566,15 @@ impl Verifier<Signature> for EcdsaPublicKey {
 #[cfg_attr(docsrs, doc(cfg(feature = "rsa")))]
 impl Signer<Signature> for RsaKeypair {
     fn try_sign(&self, message: &[u8]) -> signature::Result<Signature> {
-        let padding = rsa::padding::PaddingScheme::PKCS1v15Sign {
-            hash: Some(rsa::hash::Hash::SHA2_512),
-        };
-        let digest = sha2::Sha512::digest(message);
-        let data = rsa::RsaPrivateKey::try_from(self)?
-            .sign(padding, digest.as_ref())
+        let data = rsa::pkcs1v15::SigningKey::<Sha512>::try_from(self)?
+            .try_sign(message)
             .map_err(|_| signature::Error::new())?;
 
         Ok(Signature {
             algorithm: Algorithm::Rsa {
                 hash: Some(HashAlg::Sha512),
             },
-            data,
+            data: data.to_vec(),
         })
     }
 }
@@ -420,28 +583,18 @@ impl Signer<Signature> for RsaKeypair {
 #[cfg_attr(docsrs, doc(cfg(feature = "rsa")))]
 impl Verifier<Signature> for RsaPublicKey {
     fn verify(&self, message: &[u8], signature: &Signature) -> signature::Result<()> {
-        let key = rsa::RsaPublicKey::try_from(self)?;
-
         match signature.algorithm {
-            Algorithm::Rsa {
-                hash: Some(HashAlg::Sha256),
-            } => {
-                let digest = Sha256::digest(message);
-                let padding = rsa::padding::PaddingScheme::PKCS1v15Sign {
-                    hash: Some(rsa::hash::Hash::SHA2_256),
-                };
-                key.verify(padding, digest.as_ref(), signature.as_bytes())
-                    .map_err(|_| signature::Error::new())
-            }
-            Algorithm::Rsa {
-                hash: Some(HashAlg::Sha512),
-            } => {
-                let padding = rsa::padding::PaddingScheme::PKCS1v15Sign {
-                    hash: Some(rsa::hash::Hash::SHA2_512),
-                };
-                let digest = Sha512::digest(message);
-                key.verify(padding, digest.as_ref(), signature.as_bytes())
-                    .map_err(|_| signature::Error::new())
+            Algorithm::Rsa { hash: Some(hash) } => {
+                let signature = rsa::pkcs1v15::Signature::from(signature.data.clone());
+
+                match hash {
+                    HashAlg::Sha256 => rsa::pkcs1v15::VerifyingKey::<Sha256>::try_from(self)?
+                        .verify(message, &signature)
+                        .map_err(|_| signature::Error::new()),
+                    HashAlg::Sha512 => rsa::pkcs1v15::VerifyingKey::<Sha512>::try_from(self)?
+                        .verify(message, &signature)
+                        .map_err(|_| signature::Error::new()),
+                }
             }
             _ => Err(signature::Error::new()),
         }
@@ -451,8 +604,9 @@ impl Verifier<Signature> for RsaPublicKey {
 #[cfg(test)]
 mod tests {
     use super::Signature;
-    use crate::{encode::Encode, Algorithm, EcdsaCurve, Error, HashAlg};
+    use crate::{Algorithm, EcdsaCurve, HashAlg};
     use alloc::vec::Vec;
+    use encoding::Encode;
     use hex_literal::hex;
 
     #[cfg(feature = "ed25519")]
@@ -549,6 +703,9 @@ mod tests {
         assert!(placeholder.is_placeholder());
 
         let mut writer = Vec::new();
-        assert_eq!(placeholder.encode(&mut writer), Err(Error::Length));
+        assert_eq!(
+            placeholder.encode(&mut writer),
+            Err(encoding::Error::Length.into())
+        );
     }
 }

@@ -2694,7 +2694,11 @@ pub const ABMON_11: ::nl_item = 43;
 pub const ABMON_12: ::nl_item = 44;
 
 pub const CLOCK_REALTIME: ::clockid_t = 0;
+pub const CLOCK_MONOTONIC_RAW: ::clockid_t = 4;
+pub const CLOCK_MONOTONIC_RAW_APPROX: ::clockid_t = 5;
 pub const CLOCK_MONOTONIC: ::clockid_t = 6;
+pub const CLOCK_UPTIME_RAW: ::clockid_t = 8;
+pub const CLOCK_UPTIME_RAW_APPROX: ::clockid_t = 9;
 pub const CLOCK_PROCESS_CPUTIME_ID: ::clockid_t = 12;
 pub const CLOCK_THREAD_CPUTIME_ID: ::clockid_t = 16;
 
@@ -5866,6 +5870,9 @@ extern "C" {
 
     pub fn malloc_size(ptr: *const ::c_void) -> ::size_t;
     pub fn malloc_good_size(size: ::size_t) -> ::size_t;
+
+    pub fn dirname(path: *mut ::c_char) -> *mut ::c_char;
+    pub fn basename(path: *mut ::c_char) -> *mut ::c_char;
 }
 
 pub unsafe fn mach_task_self() -> ::mach_port_t {

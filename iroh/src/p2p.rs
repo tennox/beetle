@@ -1,8 +1,9 @@
 use crate::doc;
 use anyhow::{Error, Result};
 use clap::{Args, Subcommand};
-use iroh_api::{Multiaddr, P2pApi, PeerId, PeerIdOrAddr};
-use std::str::FromStr;
+use crossterm::style::Stylize;
+use iroh_api::{Lookup, Multiaddr, P2pApi, PeerId, PeerIdOrAddr};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 #[derive(Args, Debug, Clone)]
 #[clap(about = "Peer-2-peer commands")]
@@ -27,8 +28,11 @@ pub enum P2pCommands {
     #[clap(after_help = doc::P2P_LOOKUP_LONG_DESCRIPTION)]
     Lookup {
         /// multiaddress or peer ID
-        addr: PeerIdOrAddrArg,
+        addr: Option<PeerIdOrAddrArg>,
     },
+    #[clap(about = "List connected peers")]
+    #[clap(after_help = doc::P2P_PEERS_LONG_DESCRIPTION)]
+    Peers {},
 }
 
 #[derive(Debug, Clone)]
@@ -47,15 +51,76 @@ impl FromStr for PeerIdOrAddrArg {
     }
 }
 
-pub async fn run_command(p2p: &impl P2pApi, cmd: &P2p) -> Result<()> {
+impl Display for PeerIdOrAddrArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let peer_id_or_addr = match &self.0 {
+            PeerIdOrAddr::PeerId(p) => p.to_string(),
+            PeerIdOrAddr::Multiaddr(a) => a.to_string(),
+        };
+        write!(f, "{}", peer_id_or_addr)
+    }
+}
+
+pub async fn run_command(p2p: &P2pApi, cmd: &P2p) -> Result<()> {
     match &cmd.command {
-        P2pCommands::Connect { .. } => {
-            todo!("`iroh p2p connect` is not yet implemented")
-        }
+        P2pCommands::Connect { addr } => match p2p.connect(&addr.0).await {
+            Ok(_) => {
+                println!("Connected to {}!", addr);
+            }
+            Err(e) => return Err(e),
+        },
         P2pCommands::Lookup { addr } => {
-            let lookup = p2p.lookup(&addr.0).await?;
-            println!("peer id: {}", lookup.peer_id);
+            let lookup = match addr {
+                Some(addr) => p2p.lookup(&addr.0).await?,
+                None => p2p.lookup_local().await?,
+            };
+            display_lookup(&lookup);
+        }
+        P2pCommands::Peers {} => {
+            let peers = p2p.peers().await?;
+            display_peers(peers);
         }
     };
     Ok(())
+}
+
+fn display_lookup(l: &Lookup) {
+    println!("{}\n  {}", "Peer ID:".bold().dim(), l.peer_id);
+    println!("{}\n  {}", "Agent Version:".bold().dim(), l.agent_version);
+    println!(
+        "{}\n  {}",
+        "Protocol Version:".bold().dim(),
+        l.protocol_version
+    );
+    println!(
+        "{} {}",
+        "Observed Addresses".bold().dim(),
+        format!("({}):", l.observed_addrs.len()).bold().dim()
+    );
+    l.observed_addrs
+        .iter()
+        .for_each(|addr| println!("  {}", addr));
+    println!(
+        "{} {}",
+        "Listening Addresses".bold().dim(),
+        format!("({}):", l.listen_addrs.len()).bold().dim()
+    );
+    l.listen_addrs
+        .iter()
+        .for_each(|addr| println!("  {}", addr));
+    println!(
+        "{} {}\n  {}",
+        "Protocols".bold().dim(),
+        format!("({}):", l.protocols.len()).bold().dim(),
+        l.protocols.join("\n  ")
+    );
+}
+
+fn display_peers(peers: HashMap<PeerId, Vec<Multiaddr>>) {
+    // let mut pid_str: String;
+    for (peer_id, addrs) in peers {
+        if let Some(addr) = addrs.first() {
+            println!("{}/p2p/{}", addr, peer_id);
+        }
+    }
 }

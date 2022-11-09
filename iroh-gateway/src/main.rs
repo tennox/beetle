@@ -9,13 +9,17 @@ use iroh_gateway::{
     core::Core,
     metrics,
 };
+use iroh_resolver::racing::RacingLoader;
 use iroh_rpc_client::Client as RpcClient;
+use iroh_util::lock::ProgramLock;
 use iroh_util::{iroh_config_path, make_config};
 use tokio::sync::RwLock;
-use tracing::{debug, error};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    let mut lock = ProgramLock::new("iroh-gateway")?;
+    lock.acquire_or_exit();
+
     let args = Args::parse();
 
     let cfg_path = iroh_config_path(CONFIG_FILE_NAME)?;
@@ -35,14 +39,18 @@ async fn main() -> Result<()> {
     println!("{:#?}", config);
 
     let metrics_config = config.metrics.clone();
-    let bad_bits = match config.denylist {
+    let bad_bits = match config.use_denylist {
         true => Arc::new(Some(RwLock::new(BadBits::new()))),
         false => Arc::new(None),
     };
     let rpc_addr = config
         .server_rpc_addr()?
         .ok_or_else(|| anyhow!("missing gateway rpc addr"))?;
-    let content_loader = RpcClient::new(config.rpc_client.clone()).await?;
+
+    let content_loader = RacingLoader::new(
+        RpcClient::new(config.rpc_client.clone()).await?,
+        config.http_resolvers.clone().unwrap_or_default(),
+    );
     let handler = Core::new(
         Arc::new(config),
         rpc_addr,
@@ -60,8 +68,8 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     {
         match iroh_util::increase_fd_limit() {
-            Ok(soft) => debug!("NOFILE limit: soft = {}", soft),
-            Err(err) => error!("Error increasing NOFILE limit: {}", err),
+            Ok(soft) => tracing::debug!("NOFILE limit: soft = {}", soft),
+            Err(err) => tracing::error!("Error increasing NOFILE limit: {}", err),
         }
     }
 

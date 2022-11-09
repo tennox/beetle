@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.56"
 name = "prost-types"
-version = "0.11.1"
+version = "0.11.2"
 authors = [
     "Dan Burkert <dan@danburkert.com>",
     "Lucio Franco <luciofranco14@gmail.com",
@@ -24,7 +24,6 @@ documentation = "https://docs.rs/prost-types"
 readme = "README.md"
 license = "Apache-2.0"
 repository = "https://github.com/tokio-rs/prost"
-resolver = "2"
 
 [lib]
 doctest = false

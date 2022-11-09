@@ -183,8 +183,10 @@ impl<'a> CodeGenerator<'a> {
         self.append_doc(&fq_message_name, None);
         self.append_type_attributes(&fq_message_name);
         self.push_indent();
-        self.buf
-            .push_str("#[derive(Clone, PartialEq, ::prost::Message)]\n");
+        self.buf.push_str(&format!(
+            "#[derive(Clone, PartialEq, {}::Message)]\n",
+            self.config.prost_path.as_deref().unwrap_or("::prost")
+        ));
         self.push_indent();
         self.buf.push_str("pub struct ");
         self.buf.push_str(&to_upper_camel(&message_name));
@@ -386,13 +388,18 @@ impl<'a> CodeGenerator<'a> {
         self.buf.push_str("pub ");
         self.buf.push_str(&to_snake(field.name()));
         self.buf.push_str(": ");
+
+        let prost_path = self.config.prost_path.as_deref().unwrap_or("::prost");
+
         if repeated {
-            self.buf.push_str("::prost::alloc::vec::Vec<");
+            self.buf
+                .push_str(&format!("{}::alloc::vec::Vec<", prost_path));
         } else if optional {
             self.buf.push_str("::core::option::Option<");
         }
         if boxed {
-            self.buf.push_str("::prost::alloc::boxed::Box<");
+            self.buf
+                .push_str(&format!("{}::alloc::boxed::Box<", prost_path));
         }
         self.buf.push_str(&ty);
         if boxed {
@@ -498,8 +505,10 @@ impl<'a> CodeGenerator<'a> {
         let oneof_name = format!("{}.{}", fq_message_name, oneof.name());
         self.append_type_attributes(&oneof_name);
         self.push_indent();
-        self.buf
-            .push_str("#[derive(Clone, PartialEq, ::prost::Oneof)]\n");
+        self.buf.push_str(&format!(
+            "#[derive(Clone, PartialEq, {}::Oneof)]\n",
+            self.config.prost_path.as_deref().unwrap_or("::prost")
+        ));
         self.push_indent();
         self.buf.push_str("pub enum ");
         self.buf.push_str(&to_upper_camel(oneof.name()));
@@ -605,7 +614,7 @@ impl<'a> CodeGenerator<'a> {
         self.append_type_attributes(&fq_proto_enum_name);
         self.push_indent();
         self.buf.push_str(
-            "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]\n",
+            &format!("#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, {}::Enumeration)]\n",self.config.prost_path.as_deref().unwrap_or("::prost")),
         );
         self.push_indent();
         self.buf.push_str("#[repr(i32)]\n");
@@ -780,6 +789,8 @@ impl<'a> CodeGenerator<'a> {
     }
 
     fn resolve_type(&self, field: &FieldDescriptorProto, fq_message_name: &str) -> String {
+        let prost_path = self.config.prost_path.as_deref().unwrap_or("::prost");
+
         match field.r#type() {
             Type::Float => String::from("f32"),
             Type::Double => String::from("f64"),
@@ -788,7 +799,7 @@ impl<'a> CodeGenerator<'a> {
             Type::Int32 | Type::Sfixed32 | Type::Sint32 | Type::Enum => String::from("i32"),
             Type::Int64 | Type::Sfixed64 | Type::Sint64 => String::from("i64"),
             Type::Bool => String::from("bool"),
-            Type::String => String::from("::prost::alloc::string::String"),
+            Type::String => format!("{}::alloc::string::String", prost_path),
             Type::Bytes => self
                 .config
                 .bytes_type

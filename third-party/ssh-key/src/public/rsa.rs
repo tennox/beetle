@@ -1,19 +1,18 @@
 //! Rivest–Shamir–Adleman (RSA) public keys.
 
-use crate::{
-    checked::CheckedSum, decode::Decode, encode::Encode, reader::Reader, writer::Writer, MPInt,
-    Result,
-};
+use crate::{Error, MPInt, Result};
+use encoding::{CheckedSum, Decode, Encode, Reader, Writer};
 
 #[cfg(feature = "rsa")]
 use {
-    crate::{private::RsaKeypair, Error},
-    rsa::PublicKeyParts,
+    crate::private::RsaKeypair,
+    rsa::{pkcs1v15, PublicKeyParts},
+    sha2::{digest::const_oid::AssociatedOid, Digest},
 };
 
 /// RSA public key.
 ///
-/// Described in [RFC4253 § 6.6](https://datatracker.ietf.org/doc/html/rfc4253#section-6.6):
+/// Described in [RFC4253 § 6.6](https://datatracker.ietf.org/doc/html/rfc4253#section-6.6).
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct RsaPublicKey {
@@ -31,6 +30,8 @@ impl RsaPublicKey {
 }
 
 impl Decode for RsaPublicKey {
+    type Error = Error;
+
     fn decode(reader: &mut impl Reader) -> Result<Self> {
         let e = MPInt::decode(reader)?;
         let n = MPInt::decode(reader)?;
@@ -39,8 +40,10 @@ impl Decode for RsaPublicKey {
 }
 
 impl Encode for RsaPublicKey {
+    type Error = Error;
+
     fn encoded_len(&self) -> Result<usize> {
-        [self.e.encoded_len()?, self.n.encoded_len()?].checked_sum()
+        Ok([self.e.encoded_len()?, self.n.encoded_len()?].checked_sum()?)
     }
 
     fn encode(&self, writer: &mut impl Writer) -> Result<()> {
@@ -99,5 +102,18 @@ impl TryFrom<&rsa::RsaPublicKey> for RsaPublicKey {
             e: key.e().try_into()?,
             n: key.n().try_into()?,
         })
+    }
+}
+
+#[cfg(feature = "rsa")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rsa")))]
+impl<D> TryFrom<&RsaPublicKey> for pkcs1v15::VerifyingKey<D>
+where
+    D: Digest + AssociatedOid,
+{
+    type Error = Error;
+
+    fn try_from(key: &RsaPublicKey) -> Result<pkcs1v15::VerifyingKey<D>> {
+        Ok(pkcs1v15::VerifyingKey::new_with_prefix(key.try_into()?))
     }
 }

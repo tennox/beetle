@@ -10,24 +10,42 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.60.0"
 name = "predicates-tree"
-version = "1.0.5"
+version = "1.0.6"
 authors = ["Nick Stevens <nick@bitcurry.com>"]
-include = ["src/**/*", "Cargo.toml", "LICENSE*", "README.md", "examples/**/*"]
+include = [
+    "src/**/*",
+    "Cargo.toml",
+    "LICENSE*",
+    "README.md",
+    "examples/**/*",
+]
 description = "Render boolean-valued predicate functions results as a tree."
 homepage = "https://github.com/assert-rs/predicates-rs/tree/master/predicates-tree"
 documentation = "https://docs.rs/predicates-tree"
 readme = "README.md"
-keywords = ["predicate", "boolean", "combinatorial", "match", "logic"]
-categories = ["data-structures", "rust-patterns"]
+keywords = [
+    "predicate",
+    "boolean",
+    "combinatorial",
+    "match",
+    "logic",
+]
+categories = [
+    "data-structures",
+    "rust-patterns",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/assert-rs/predicates-rs/tree/master/predicates-tree"
+
 [dependencies.predicates-core]
 version = "1.0"
 
 [dependencies.termtree]
-version = "0.2"
+version = "0.4"
+
 [dev-dependencies.predicates]
-version = "2.0"
+version = "2.1"
 features = ["color-auto"]

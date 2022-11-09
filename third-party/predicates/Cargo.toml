@@ -10,62 +10,85 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.60.0"
 name = "predicates"
-version = "2.1.1"
+version = "2.1.2"
 authors = ["Nick Stevens <nick@bitcurry.com>"]
-include = ["src/**/*", "Cargo.toml", "LICENSE*", "README.md", "examples/**/*"]
+include = [
+    "src/**/*",
+    "Cargo.toml",
+    "LICENSE*",
+    "README.md",
+    "examples/**/*",
+]
 description = "An implementation of boolean-valued predicate functions."
 homepage = "https://github.com/assert-rs/predicates-rs"
 documentation = "https://docs.rs/predicates"
 readme = "README.md"
-keywords = ["predicate", "boolean", "combinatorial", "match", "logic"]
-categories = ["data-structures", "rust-patterns"]
+keywords = [
+    "predicate",
+    "boolean",
+    "combinatorial",
+    "match",
+    "logic",
+]
+categories = [
+    "data-structures",
+    "rust-patterns",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/assert-rs/predicates-rs"
+
 [[package.metadata.release.pre-release-replacements]]
-exactly = 1
 file = "src/lib.rs"
-replace = "predicates = \"{{version}}\""
 search = "predicates = \".*\""
+replace = "predicates = \"{{version}}\""
+exactly = 1
 
 [[package.metadata.release.pre-release-replacements]]
-exactly = 1
 file = "README.md"
-replace = "predicates = \"{{version}}\""
 search = "predicates = \".*\""
+replace = "predicates = \"{{version}}\""
+exactly = 1
 
 [[package.metadata.release.pre-release-replacements]]
 file = "CHANGELOG.md"
-min = 1
-replace = "{{version}}"
 search = "Unreleased"
-
-[[package.metadata.release.pre-release-replacements]]
-exactly = 1
-file = "CHANGELOG.md"
-replace = "...{{tag_name}}"
-search = "\\.\\.\\.HEAD"
-
-[[package.metadata.release.pre-release-replacements]]
-file = "CHANGELOG.md"
+replace = "{{version}}"
 min = 1
-replace = "{{date}}"
+
+[[package.metadata.release.pre-release-replacements]]
+file = "CHANGELOG.md"
+search = '\.\.\.HEAD'
+replace = "...{{tag_name}}"
+exactly = 1
+
+[[package.metadata.release.pre-release-replacements]]
+file = "CHANGELOG.md"
 search = "ReleaseDate"
+replace = "{{date}}"
+min = 1
 
 [[package.metadata.release.pre-release-replacements]]
-exactly = 1
 file = "CHANGELOG.md"
-replace = "<!-- next-header -->\n## [Unreleased] - ReleaseDate\n"
 search = "<!-- next-header -->"
+replace = """
+<!-- next-header -->
+## [Unreleased] - ReleaseDate
+"""
+exactly = 1
 
 [[package.metadata.release.pre-release-replacements]]
-exactly = 1
 file = "CHANGELOG.md"
-replace = "<!-- next-url -->\n[Unreleased]: https://github.com/assert-rs/predicates-rs/compare/{{tag_name}}...HEAD"
 search = "<!-- next-url -->"
+replace = """
+<!-- next-url -->
+[Unreleased]: https://github.com/assert-rs/predicates-rs/compare/{{tag_name}}...HEAD"""
+exactly = 1
+
 [dependencies.concolor]
-version = "0.0.8"
+version = "0.0.9"
 optional = true
 
 [dependencies.difflib]
@@ -91,14 +114,27 @@ version = "1.0"
 optional = true
 
 [dependencies.yansi]
-version = "0.5.0"
+version = "0.5.1"
 optional = true
+
 [dev-dependencies.predicates-tree]
 version = "1.0"
 
 [features]
-color = ["yansi", "concolor/std"]
-color-auto = ["color", "concolor/auto"]
-default = ["diff", "regex", "float-cmp", "normalize-line-endings"]
-diff = ["difflib"]
+color = [
+    "dep:yansi",
+    "dep:concolor",
+    "concolor?/std",
+]
+color-auto = [
+    "color",
+    "concolor?/auto",
+]
+default = [
+    "diff",
+    "regex",
+    "float-cmp",
+    "normalize-line-endings",
+]
+diff = ["dep:difflib"]
 unstable = []

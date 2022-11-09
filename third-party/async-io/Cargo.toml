@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.46"
 name = "async-io"
-version = "1.9.0"
+version = "1.10.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
 description = "Async I/O and timers"
@@ -37,6 +37,9 @@ repository = "https://github.com/smol-rs/async-io"
 name = "io"
 harness = false
 
+[dependencies.async-lock]
+version = "2.6"
+
 [dependencies.concurrent-queue]
 version = "1.2.2"
 
@@ -45,9 +48,6 @@ version = "1.11.0"
 
 [dependencies.log]
 version = "0.4.11"
-
-[dependencies.once_cell]
-version = "1.4.1"
 
 [dependencies.parking]
 version = "2.0.0"

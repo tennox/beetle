@@ -10,16 +10,32 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.60.0"
 name = "predicates-core"
-version = "1.0.3"
+version = "1.0.4"
 authors = ["Nick Stevens <nick@bitcurry.com>"]
-include = ["src/**/*", "Cargo.toml", "LICENSE*", "README.md", "examples/**/*"]
+include = [
+    "src/**/*",
+    "Cargo.toml",
+    "LICENSE*",
+    "README.md",
+    "examples/**/*",
+]
 description = "An API for boolean-valued predicate functions."
 homepage = "https://github.com/assert-rs/predicates-rs/tree/master/predicates-core"
 documentation = "https://docs.rs/predicates-core"
 readme = "README.md"
-keywords = ["predicate", "boolean", "combinatorial", "match", "logic"]
-categories = ["data-structures", "rust-patterns"]
+keywords = [
+    "predicate",
+    "boolean",
+    "combinatorial",
+    "match",
+    "logic",
+]
+categories = [
+    "data-structures",
+    "rust-patterns",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/assert-rs/predicates-rs/tree/master/predicates-core"

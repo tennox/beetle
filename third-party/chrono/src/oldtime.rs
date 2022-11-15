@@ -382,6 +382,7 @@ impl Div<i32> for Duration {
 }
 
 #[cfg(any(feature = "std", test))]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl<'a> std::iter::Sum<&'a Duration> for Duration {
     fn sum<I: Iterator<Item = &'a Duration>>(iter: I) -> Duration {
         iter.fold(Duration::zero(), |acc, x| acc + *x)
@@ -389,6 +390,7 @@ impl<'a> std::iter::Sum<&'a Duration> for Duration {
 }
 
 #[cfg(any(feature = "std", test))]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl std::iter::Sum<Duration> for Duration {
     fn sum<I: Iterator<Item = Duration>>(iter: I) -> Duration {
         iter.fold(Duration::zero(), |acc, x| acc + x)
@@ -445,6 +447,7 @@ impl fmt::Display for OutOfRangeError {
 }
 
 #[cfg(any(feature = "std", test))]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl Error for OutOfRangeError {
     #[allow(deprecated)]
     fn description(&self) -> &str {
@@ -477,6 +480,24 @@ fn mod_floor_64(this: i64, other: i64) -> i64 {
 #[inline]
 fn div_rem_64(this: i64, other: i64) -> (i64, i64) {
     (this / other, this % other)
+}
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for Duration {
+    fn arbitrary(u: &mut arbitrary::Unstructured) -> arbitrary::Result<Duration> {
+        const MIN_SECS: i64 = i64::MIN / MILLIS_PER_SEC - 1;
+        const MAX_SECS: i64 = i64::MAX / MILLIS_PER_SEC;
+
+        let secs: i64 = u.int_in_range(MIN_SECS..=MAX_SECS)?;
+        let nanos: i32 = u.int_in_range(0..=(NANOS_PER_SEC - 1))?;
+        let duration = Duration { secs, nanos };
+
+        if duration < MIN || duration > MAX {
+            Err(arbitrary::Error::IncorrectFormat)
+        } else {
+            Ok(duration)
+        }
+    }
 }
 
 #[cfg(test)]

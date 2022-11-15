@@ -18,12 +18,14 @@
 //! ```
 
 #![cfg(windows)]
-#![doc(html_root_url = "https://docs.rs/ipconfig/0.3/x86_64-pc-windows-msvc/ipconfig/")]
+#![doc(html_root_url = "https://docs.rs/ipconfig/0.3.1/x86_64-pc-windows-msvc/ipconfig/")]
 
 extern crate widestring;
 extern crate winapi;
 mod adapter;
 mod bindings;
+
+#[cfg(feature = "computer")]
 pub mod computer;
 pub mod error;
 

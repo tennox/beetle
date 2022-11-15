@@ -12,13 +12,8 @@
 [package]
 edition = "2018"
 name = "chrono"
-version = "0.4.22"
-exclude = [
-    "/ci/*",
-    "/.travis.yml",
-    "/appveyor.yml",
-    "/Makefile",
-]
+version = "0.4.23"
+exclude = ["/ci/*"]
 description = "Date and time library for Rust"
 homepage = "https://github.com/chronotope/chrono"
 documentation = "https://docs.rs/chrono/"
@@ -34,6 +29,10 @@ repository = "https://github.com/chronotope/chrono"
 
 [package.metadata.docs.rs]
 features = ["serde"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
 
 [package.metadata.playground]
 features = ["serde"]
@@ -54,8 +53,13 @@ required-features = [
     "serde",
 ]
 
+[dependencies.arbitrary]
+version = "1.0.0"
+features = ["derive"]
+optional = true
+
 [dependencies.criterion]
-version = "0.3"
+version = "0.4.0"
 optional = true
 
 [dependencies.iana-time-zone]
@@ -156,9 +160,3 @@ features = [
     "timezoneapi",
 ]
 optional = true
-
-[badges.appveyor]
-repository = "chronotope/chrono"
-
-[badges.travis-ci]
-repository = "chronotope/chrono"

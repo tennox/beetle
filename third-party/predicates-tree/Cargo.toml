@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60.0"
 name = "predicates-tree"
-version = "1.0.6"
+version = "1.0.7"
 authors = ["Nick Stevens <nick@bitcurry.com>"]
 include = [
     "src/**/*",
@@ -23,7 +23,7 @@ include = [
     "examples/**/*",
 ]
 description = "Render boolean-valued predicate functions results as a tree."
-homepage = "https://github.com/assert-rs/predicates-rs/tree/master/predicates-tree"
+homepage = "https://github.com/assert-rs/predicates-rs/tree/master/crates/tree"
 documentation = "https://docs.rs/predicates-tree"
 readme = "README.md"
 keywords = [
@@ -38,7 +38,7 @@ categories = [
     "rust-patterns",
 ]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/assert-rs/predicates-rs/tree/master/predicates-tree"
+repository = "https://github.com/assert-rs/predicates-rs/tree/master/crates/tree"
 
 [dependencies.predicates-core]
 version = "1.0"

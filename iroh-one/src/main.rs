@@ -12,15 +12,13 @@ use iroh_one::{
     cli::Args,
     config::{Config, ENV_PREFIX},
 };
-use iroh_resolver::racing::RacingLoader;
+use iroh_resolver::content_loader::{FullLoader, FullLoaderConfig};
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_types::Addr;
 #[cfg(not(target_os = "android"))]
 use iroh_util::iroh_config_path;
-use iroh_util::make_config;
 use iroh_util::lock::ProgramLock;
-#[cfg(feature = "uds-gateway")]
-use tempfile::TempDir;
+use iroh_util::make_config;
 use tokio::sync::RwLock;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -34,12 +32,14 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     #[cfg(not(target_os = "android"))]
-    let sources = vec![Some(iroh_config_path(CONFIG_FILE_NAME)?), args.cfg.clone()];
+    let cfg_path = iroh_config_path(CONFIG_FILE_NAME)?;
+    #[cfg(not(target_os = "android"))]
+    let sources = vec![Some(cfg_path.as_path()), args.cfg.as_deref()];
 
     // Don't try to use the "system default" config path on Android since it's not supported by the
     // `dirs_next` crate.
     #[cfg(target_os = "android")]
-    let sources = vec![args.cfg.clone()];
+    let sources = vec![args.cfg.as_deref()];
 
     let mut config = make_config(
         // default
@@ -97,10 +97,19 @@ async fn main() -> Result<()> {
         false => Arc::new(None),
     };
 
-    let content_loader = RacingLoader::new(
+    let content_loader = FullLoader::new(
         RpcClient::new(config.rpc_client.clone()).await?,
-        config.gateway.http_resolvers.clone().unwrap_or_default(),
-    );
+        FullLoaderConfig {
+            http_gateways: config
+                .gateway
+                .http_resolvers
+                .iter()
+                .flatten()
+                .map(|u| u.parse())
+                .collect::<Result<_>>()?,
+            indexer: None, // TODO
+        },
+    )?;
     let shared_state = Core::make_state(
         Arc::new(config.clone()),
         Arc::clone(&bad_bits),
@@ -126,14 +135,18 @@ async fn main() -> Result<()> {
 
     #[cfg(feature = "uds-gateway")]
     let uds_server_task = {
-        let mut path = TempDir::new()?.path().join("ipfsd.http");
+        let mut path = tempfile::Builder::new()
+            .prefix("iroh")
+            .tempdir()?
+            .path()
+            .join("ipfsd.http");
         if let Some(uds_path) = config.gateway_uds_path {
             path = uds_path;
         } else {
             // Create the parent path when using the default value since it's likely
             // it won't exist yet.
             if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(&parent);
+                let _ = std::fs::create_dir_all(parent);
             }
         }
 

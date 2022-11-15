@@ -12,15 +12,26 @@
 [package]
 edition = "2018"
 name = "ipconfig"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Liran Ringel <liranringel@gmail.com>"]
 description = "Get network adapters information and network configuration for windows."
 homepage = "https://github.com/liranringel/ipconfig"
-documentation = "https://docs.rs/ipconfig/0.3/x86_64-pc-windows-msvc/ipconfig/"
+documentation = "https://docs.rs/ipconfig/0.3.1/x86_64-pc-windows-msvc/ipconfig/"
 readme = "README.md"
-keywords = ["ipconfig", "network", "adapter", "interface", "windows"]
+keywords = [
+    "ipconfig",
+    "network",
+    "adapter",
+    "interface",
+    "windows",
+]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/liranringel/ipconfig"
+
+[features]
+computer = ["winreg"]
+default = ["computer"]
+
 [target."cfg(windows)".dependencies.socket2]
 version = "^0.4.0"
 
@@ -31,6 +42,8 @@ version = "^0.5"
 version = "^0.3.4"
 
 [target."cfg(windows)".dependencies.winreg]
-version = "^0.7.0"
+version = "^0.10.1"
+optional = true
+
 [badges.appveyor]
 repository = "liranringel/ipconfig"

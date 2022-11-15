@@ -11,7 +11,7 @@
 //!
 //! # Usage
 //!
-//! Using PKCS#1 v1.5.
+//! ## PKCS#1 v1.5 encryption
 //! ```
 //! use rsa::{PublicKey, RsaPrivateKey, RsaPublicKey, PaddingScheme};
 //!
@@ -33,7 +33,7 @@
 //! assert_eq!(&data[..], &dec_data[..]);
 //! ```
 //!
-//! Using OAEP.
+//! ## OAEP encryption
 //! ```
 //! use rsa::{PublicKey, RsaPrivateKey, RsaPublicKey, PaddingScheme};
 //!
@@ -55,12 +55,12 @@
 //! assert_eq!(&data[..], &dec_data[..]);
 //! ```
 //!
-//! Using PKCS#1 v1.5 signatures
+//! ## PKCS#1 v1.5 signatures
 //! ```
 //! use rsa::RsaPrivateKey;
 //! use rsa::pkcs1v15::{SigningKey, VerifyingKey};
+//! use rsa::signature::{RandomizedSigner, Signature, Verifier};
 //! use sha2::{Digest, Sha256};
-//! use signature::{RandomizedSigner, Signature, Verifier};
 //!
 //! let mut rng = rand::thread_rng();
 //!
@@ -78,12 +78,12 @@
 //! verifying_key.verify(data, &signature).expect("failed to verify");
 //! ```
 //!
-//! Using PSS signatures
+//! ## PSS signatures
 //! ```
 //! use rsa::RsaPrivateKey;
 //! use rsa::pss::{BlindedSigningKey, VerifyingKey};
+//! use rsa::signature::{RandomizedSigner, Signature, Verifier};
 //! use sha2::{Digest, Sha256};
-//! use signature::{RandomizedSigner, Signature, Verifier};
 //!
 //! let mut rng = rand::thread_rng();
 //!
@@ -210,6 +210,7 @@ extern crate std;
 
 pub use num_bigint::BigUint;
 pub use rand_core;
+pub use signature;
 
 pub mod algorithms;
 pub mod errors;

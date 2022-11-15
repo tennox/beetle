@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60.0"
 name = "predicates"
-version = "2.1.2"
+version = "2.1.3"
 authors = ["Nick Stevens <nick@bitcurry.com>"]
 include = [
     "src/**/*",

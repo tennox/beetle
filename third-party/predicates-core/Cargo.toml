@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60.0"
 name = "predicates-core"
-version = "1.0.4"
+version = "1.0.5"
 authors = ["Nick Stevens <nick@bitcurry.com>"]
 include = [
     "src/**/*",
@@ -23,7 +23,7 @@ include = [
     "examples/**/*",
 ]
 description = "An API for boolean-valued predicate functions."
-homepage = "https://github.com/assert-rs/predicates-rs/tree/master/predicates-core"
+homepage = "https://github.com/assert-rs/predicates-rs/tree/master/crates/core"
 documentation = "https://docs.rs/predicates-core"
 readme = "README.md"
 keywords = [
@@ -38,4 +38,4 @@ categories = [
     "rust-patterns",
 ]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/assert-rs/predicates-rs/tree/master/predicates-core"
+repository = "https://github.com/assert-rs/predicates-rs/tree/master/crates/core"

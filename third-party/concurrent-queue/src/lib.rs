@@ -24,24 +24,52 @@
 //! assert_eq!(q.pop(), Ok(2));
 //! ```
 //!
+//! # Features
+//!
+//! `concurrent-queue` uses an `std` default feature. With this feature enabled, this crate will
+//! use [`std::thread::yield_now`] to avoid busy waiting in tight loops. However, with this
+//! feature disabled, [`core::hint::spin_loop`] will be used instead. Disabling `std` will allow
+//! this crate to be used on `no_std` platforms at the potential expense of more busy waiting.
+//!
+//! There is also a `portable-atomic` feature, which uses a polyfill from the
+//! [`portable-atomic`] crate to provide atomic operations on platforms that do not support them.
+//! See the [`README`] for the [`portable-atomic`] crate for more information on how to use it on
+//! single-threaded targets. Note that even with this feature enabled, `concurrent-queue` still
+//! requires a global allocator to be available. See the documentation for the
+//! [`std::alloc::GlobalAlloc`] trait for more information.
+//!
 //! [Bounded]: `ConcurrentQueue::bounded()`
 //! [Unbounded]: `ConcurrentQueue::unbounded()`
 //! [closed]: `ConcurrentQueue::close()`
+//! [`portable-atomic`]: https://crates.io/crates/portable-atomic
+//! [`README`]: https://github.com/taiki-e/portable-atomic/blob/main/README.md#optional-cfg
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
+#![no_std]
 
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
+
+use alloc::boxed::Box;
+use core::fmt;
+use sync::atomic::{self, AtomicUsize, Ordering};
+
+#[cfg(feature = "std")]
 use std::error;
-use std::fmt;
+#[cfg(feature = "std")]
 use std::panic::{RefUnwindSafe, UnwindSafe};
-use std::sync::atomic::{self, AtomicUsize, Ordering};
 
 use crate::bounded::Bounded;
 use crate::single::Single;
+use crate::sync::busy_wait;
 use crate::unbounded::Unbounded;
 
 mod bounded;
 mod single;
 mod unbounded;
+
+mod sync;
 
 /// A concurrent queue.
 ///
@@ -65,7 +93,9 @@ pub struct ConcurrentQueue<T>(Inner<T>);
 unsafe impl<T: Send> Send for ConcurrentQueue<T> {}
 unsafe impl<T: Send> Sync for ConcurrentQueue<T> {}
 
+#[cfg(feature = "std")]
 impl<T> UnwindSafe for ConcurrentQueue<T> {}
+#[cfg(feature = "std")]
 impl<T> RefUnwindSafe for ConcurrentQueue<T> {}
 
 enum Inner<T> {
@@ -367,6 +397,7 @@ impl PopError {
     }
 }
 
+#[cfg(feature = "std")]
 impl error::Error for PopError {}
 
 impl fmt::Debug for PopError {
@@ -423,6 +454,7 @@ impl<T> PushError<T> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: fmt::Debug> error::Error for PushError<T> {}
 
 impl<T: fmt::Debug> fmt::Debug for PushError<T> {
@@ -448,7 +480,8 @@ impl<T> fmt::Display for PushError<T> {
 fn full_fence() {
     if cfg!(all(
         any(target_arch = "x86", target_arch = "x86_64"),
-        not(miri)
+        not(miri),
+        not(loom)
     )) {
         // HACK(stjepang): On x86 architectures there are two different ways of executing
         // a `SeqCst` fence.

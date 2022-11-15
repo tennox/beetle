@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "ahash"
-version = "0.8.1"
+version = "0.8.2"
 authors = ["Tom Kaitchuck <Tom.Kaitchuck@gmail.com>"]
 build = "./build.rs"
 exclude = [
@@ -36,7 +36,6 @@ categories = [
 ]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tkaitchuck/ahash"
-resolver = "1"
 
 [package.metadata.docs.rs]
 rustc-args = [
@@ -96,6 +95,10 @@ version = "1.0"
 version = "0.1.12"
 optional = true
 
+[dependencies.getrandom]
+version = "0.2.7"
+optional = true
+
 [dependencies.serde]
 version = "1.0.117"
 optional = true
@@ -145,10 +148,6 @@ no-rng = []
 runtime-rng = ["getrandom"]
 std = []
 
-[target."cfg(any(target_arch = \"wasm32\", target_abi = \"unknown\"))".dependencies.getrandom]
-version = "0.2.7"
-features = ["js"]
-
 [target."cfg(not(all(target_arch = \"arm\", target_os = \"none\")))".dependencies.once_cell]
 version = "1.13.1"
 features = [
@@ -156,7 +155,3 @@ features = [
     "alloc",
 ]
 default-features = false
-
-[target."cfg(not(any(target_arch = \"wasm32\", target_abi = \"unknown\")))".dependencies.getrandom]
-version = "0.2.7"
-optional = true

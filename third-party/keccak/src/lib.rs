@@ -49,6 +49,12 @@ use core::{
 #[rustfmt::skip]
 mod unroll;
 
+#[cfg(all(target_arch = "aarch64", feature = "asm"))]
+mod armv8;
+
+#[cfg(all(target_arch = "aarch64", feature = "asm"))]
+cpufeatures::new!(armv8_sha3_intrinsics, "sha3");
+
 const PLEN: usize = 25;
 
 const RHO: [u32; 24] = [
@@ -143,7 +149,18 @@ macro_rules! impl_keccak {
 impl_keccak!(f200, u8);
 impl_keccak!(f400, u16);
 impl_keccak!(f800, u32);
+
+#[cfg(not(all(target_arch = "aarch64", feature = "asm")))]
 impl_keccak!(f1600, u64);
+
+#[cfg(all(target_arch = "aarch64", feature = "asm"))]
+pub fn f1600(state: &mut [u64; PLEN]) {
+    if armv8_sha3_intrinsics::get() {
+        unsafe { armv8::f1600_armv8_sha3_asm(state) }
+    } else {
+        keccak_p(state, u64::KECCAK_F_ROUND_COUNT);
+    }
+}
 
 #[cfg(feature = "simd")]
 /// SIMD implementations for Keccak-f1600 sponge function

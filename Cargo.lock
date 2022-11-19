@@ -2608,6 +2608,7 @@ dependencies = [
  "lru",
  "names",
  "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "serde",
  "smallvec",
  "ssh-key",
@@ -2743,6 +2744,7 @@ dependencies = [
 name = "iroh-store"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.2",
  "anyhow",
  "async-trait",
  "bytecheck",
@@ -2790,6 +2792,7 @@ dependencies = [
  "serde",
  "sysinfo",
  "temp-env",
+ "tempfile",
  "thiserror",
  "toml",
  "tracing",

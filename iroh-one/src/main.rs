@@ -6,7 +6,7 @@ use clap::Parser;
 use iroh_gateway::{bad_bits::BadBits, core::Core, metrics};
 #[cfg(not(target_os = "android"))]
 use iroh_one::config::CONFIG_FILE_NAME;
-#[cfg(feature = "uds-gateway")]
+#[cfg(all(feature = "uds-gateway", unix))]
 use iroh_one::uds;
 use iroh_one::{
     cli::Args,
@@ -34,18 +34,18 @@ async fn main() -> Result<()> {
     #[cfg(not(target_os = "android"))]
     let cfg_path = iroh_config_path(CONFIG_FILE_NAME)?;
     #[cfg(not(target_os = "android"))]
-    let sources = vec![Some(cfg_path.as_path()), args.cfg.as_deref()];
+    let sources = [Some(cfg_path.as_path()), args.cfg.as_deref()];
 
     // Don't try to use the "system default" config path on Android since it's not supported by the
     // `dirs_next` crate.
     #[cfg(target_os = "android")]
-    let sources = vec![args.cfg.as_deref()];
+    let sources = [args.cfg.as_deref()];
 
     let mut config = make_config(
         // default
         Config::default(),
         // potential config files
-        sources,
+        &sources,
         // env var prefix for this config
         ENV_PREFIX,
         // map of present command line arguments
@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    #[cfg(feature = "uds-gateway")]
+    #[cfg(all(feature = "uds-gateway", unix))]
     let uds_server_task = {
         let mut path = tempfile::Builder::new()
             .prefix("iroh")
@@ -163,7 +163,7 @@ async fn main() -> Result<()> {
 
     store_rpc.abort();
     p2p_rpc.abort();
-    #[cfg(feature = "uds-gateway")]
+    #[cfg(all(feature = "uds-gateway", unix))]
     uds_server_task.abort();
     core_task.abort();
 

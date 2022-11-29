@@ -1,3 +1,25 @@
+# 0.16.0 [2022-11-04]
+
+- Create `protocol_stack` for Multiaddr. See [PR 60].
+
+- Add `QuicV1` instance for `Multiaddr`. See [PR 64].
+
+[PR 60]: https://github.com/multiformats/rust-multiaddr/pull/60
+[PR 64]: https://github.com/multiformats/rust-multiaddr/pull/64
+
+# 0.15.0 [2022-10-20]
+
+- Add `WebRTC` instance for `Multiaddr`. See [PR 59].
+- Add `Certhash` instance for `Multiaddr`. See [PR 59].
+
+- Add support for Noise protocol. See [PR 53].
+
+- Use `multibase` instead of `bs58` for base58 encoding. See [PR 56].
+
+[PR 53]: https://github.com/multiformats/rust-multiaddr/pull/53
+[PR 56]: https://github.com/multiformats/rust-multiaddr/pull/56
+[PR 59]: https://github.com/multiformats/rust-multiaddr/pull/59
+
 # 0.14.0 [2022-02-02]
 
 - Add support for TLS protocol (see [PR 48]).

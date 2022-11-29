@@ -149,7 +149,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Locate all nodes providing the file.
             let providers = network_client.get_providers(name.clone()).await;
             if providers.is_empty() {
-                return Err(format!("Could not find provider for file {}.", name).into());
+                return Err(format!("Could not find provider for file {name}.").into());
             }
 
             // Request the content of the file from each node.
@@ -213,15 +213,13 @@ mod network {
     use libp2p::identity;
     use libp2p::identity::ed25519;
     use libp2p::kad::record::store::MemoryStore;
-    use libp2p::kad::{Kademlia, KademliaEvent, QueryId, QueryResult};
+    use libp2p::kad::{GetProvidersOk, Kademlia, KademliaEvent, QueryId, QueryResult};
     use libp2p::multiaddr::Protocol;
     use libp2p::request_response::{
         ProtocolSupport, RequestId, RequestResponse, RequestResponseCodec, RequestResponseEvent,
         RequestResponseMessage, ResponseChannel,
     };
-    use libp2p::swarm::{ConnectionHandlerUpgrErr, SwarmBuilder, SwarmEvent};
-    use libp2p::{NetworkBehaviour, Swarm};
-    use libp2p_kad::GetProvidersOk;
+    use libp2p::swarm::{ConnectionHandlerUpgrErr, NetworkBehaviour, Swarm, SwarmEvent};
     use std::collections::{hash_map, HashMap, HashSet};
     use std::iter;
 
@@ -252,7 +250,7 @@ mod network {
 
         // Build the Swarm, connecting the lower layer transport logic with the
         // higher layer network behaviour logic.
-        let swarm = SwarmBuilder::new(
+        let swarm = Swarm::with_threadpool_executor(
             libp2p::development_transport(id_keys).await?,
             ComposedBehaviour {
                 kademlia: Kademlia::new(peer_id, MemoryStore::new(peer_id)),
@@ -263,8 +261,7 @@ mod network {
                 ),
             },
             peer_id,
-        )
-        .build();
+        );
 
         let (command_sender, command_receiver) = mpsc::channel(0);
         let (event_sender, event_receiver) = mpsc::channel(0);
@@ -327,16 +324,12 @@ mod network {
 
         /// Find the providers for the given file on the DHT.
         pub async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
-            let (sender, mut receiver) = mpsc::channel(0);
+            let (sender, receiver) = oneshot::channel();
             self.sender
                 .send(Command::GetProviders { file_name, sender })
                 .await
                 .expect("Command receiver not to be dropped.");
-            let mut out = HashSet::new();
-            while let Some(h) = receiver.next().await {
-                out.extend(h);
-            }
-            out
+            receiver.await.expect("Sender not to be dropped.")
         }
 
         /// Request the content of the given file from the given peer.
@@ -376,7 +369,7 @@ mod network {
         event_sender: mpsc::Sender<Event>,
         pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
         pending_start_providing: HashMap<QueryId, oneshot::Sender<()>>,
-        pending_get_providers: HashMap<QueryId, mpsc::Sender<HashSet<PeerId>>>,
+        pending_get_providers: HashMap<QueryId, oneshot::Sender<HashSet<PeerId>>>,
         pending_request_file:
             HashMap<RequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>,
     }
@@ -435,29 +428,35 @@ mod network {
                 SwarmEvent::Behaviour(ComposedEvent::Kademlia(
                     KademliaEvent::OutboundQueryProgressed {
                         id,
-                        result: QueryResult::GetProviders(Ok(GetProvidersOk { providers, .. })),
+                        result:
+                            QueryResult::GetProviders(Ok(GetProvidersOk::FoundProviders {
+                                providers,
+                                ..
+                            })),
                         ..
                     },
                 )) => {
-                    let _ = self
-                        .pending_get_providers
-                        .get_mut(&id)
-                        .expect("Completed query to be previously pending.")
-                        .send(providers);
+                    if let Some(sender) = self.pending_get_providers.remove(&id) {
+                        sender.send(providers).expect("Receiver not to be dropped");
+
+                        // Finish the query. We are only interested in the first result.
+                        self.swarm
+                            .behaviour_mut()
+                            .kademlia
+                            .query_mut(&id)
+                            .unwrap()
+                            .finish();
+                    }
                 }
                 SwarmEvent::Behaviour(ComposedEvent::Kademlia(
                     KademliaEvent::OutboundQueryProgressed {
-                        id,
-                        result: QueryResult::GetProviders(..),
+                        result:
+                            QueryResult::GetProviders(Ok(
+                                GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
+                            )),
                         ..
                     },
-                )) => {
-                    // Drop channel to signal query is complete.
-                    let _ = self
-                        .pending_get_providers
-                        .remove(&id)
-                        .expect("Completed query to be previously pending.");
-                }
+                )) => {}
                 SwarmEvent::Behaviour(ComposedEvent::Kademlia(_)) => {}
                 SwarmEvent::Behaviour(ComposedEvent::RequestResponse(
                     RequestResponseEvent::Message { message, .. },
@@ -524,8 +523,8 @@ mod network {
                     }
                 }
                 SwarmEvent::IncomingConnectionError { .. } => {}
-                SwarmEvent::Dialing(peer_id) => eprintln!("Dialing {}", peer_id),
-                e => panic!("{:?}", e),
+                SwarmEvent::Dialing(peer_id) => eprintln!("Dialing {peer_id}"),
+                e => panic!("{e:?}"),
             }
         }
 
@@ -644,7 +643,7 @@ mod network {
         },
         GetProviders {
             file_name: String,
-            sender: mpsc::Sender<HashSet<PeerId>>,
+            sender: oneshot::Sender<HashSet<PeerId>>,
         },
         RequestFile {
             file_name: String,

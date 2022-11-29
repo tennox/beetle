@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.46"
 name = "async-io"
-version = "1.10.0"
+version = "1.12.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
 description = "Async I/O and timers"
@@ -41,7 +41,7 @@ harness = false
 version = "2.6"
 
 [dependencies.concurrent-queue]
-version = "1.2.2"
+version = "2"
 
 [dependencies.futures-lite]
 version = "1.11.0"
@@ -75,7 +75,7 @@ version = "1"
 version = "1"
 
 [dev-dependencies.criterion]
-version = "0.3.6"
+version = "0.4"
 
 [dev-dependencies.getrandom]
 version = "0.2.7"
@@ -94,7 +94,7 @@ version = "0.10"
 default-features = false
 
 [target."cfg(target_os = \"linux\")".dev-dependencies.nix]
-version = "0.24"
+version = "0.25"
 default-features = false
 
 [target."cfg(target_os = \"linux\")".dev-dependencies.timerfd]
@@ -103,9 +103,9 @@ version = "1"
 [target."cfg(unix)".dependencies.libc]
 version = "0.2.77"
 
-[target."cfg(windows)".dependencies.winapi]
-version = "0.3.9"
-features = ["winsock2"]
+[target."cfg(windows)".dependencies.windows-sys]
+version = "0.42"
+features = ["Win32_Networking_WinSock"]
 
 [target."cfg(windows)".dev-dependencies.uds_windows]
 version = "1"

@@ -1,4 +1,9 @@
-# iroh-share
+# iroh share
+
+[![crates.io](https://img.shields.io/crates/v/iroh-share.svg?style=flat-square)](https://crates.io/crates/iroh-share)
+[![Released API docs](https://img.shields.io/docsrs/iroh-share?style=flat-square)](https://docs.rs/iroh-share)
+[![MIT/Apache-2.0 licensed](https://img.shields.io/crates/l/iroh-share?style=flat-square)](../LICENSE-MIT)
+[![CI](https://img.shields.io/github/workflow/status/n0-computer/iroh/Continuous%20integration?style=flat-square)](https://github.com/n0-computer/iroh/actions?query=workflow%3A%22Continuous+integration%22)
 
 This provides an application that lets you easily share files accross devices
 using [iroh](https://github.com/n0-computer/iroh) and

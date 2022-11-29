@@ -141,5 +141,14 @@ fn lookup_test() {
 fn version_test() {
     trycmd::TestCases::new()
         .case("tests/cmd/version.trycmd")
+        .insert_var("[VERSION]", std::env::var("CARGO_PKG_VERSION").unwrap())
+        .unwrap();
+}
+
+#[test]
+fn start_status_stop_test() {
+    trycmd::TestCases::new()
+        .env("IROH_CTL_FIXTURE", "start_status_stop")
+        .case("tests/cmd/start_status_stop.trycmd")
         .run();
 }

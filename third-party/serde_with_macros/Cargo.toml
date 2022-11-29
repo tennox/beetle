@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60"
 name = "serde_with_macros"
-version = "2.0.1"
+version = "2.1.0"
 authors = ["Jonas Bushart"]
 include = [
     "src/**/*",
@@ -35,7 +35,6 @@ keywords = [
 categories = ["encoding"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jonasbb/serde_with/"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -58,6 +57,9 @@ features = [
     "full",
     "parsing",
 ]
+
+[dev-dependencies.expect-test]
+version = "1.4.0"
 
 [dev-dependencies.pretty_assertions]
 version = "1.0.0"

@@ -1,3 +1,95 @@
+# [v0.1.3](https://github.com/n0-computer/iroh/compare/iroh-v0.1.2...iroh-v0.1.3) (2022-11-28)
+
+Bug fix release, for issues discovered while publishing to crates.io.
+
+### Bug Fixes
+
+* **iroh:** do not use self version dep ([6f6fee0](https://github.com/n0-computer/iroh/commit/6f6fee0aed2f0d6d2381ac2b731d05cadfcfff52))
+* **iroh:** exclude tests and fixtures from publishing ([6ebee5f](https://github.com/n0-computer/iroh/commit/6ebee5f3082f08d19662b8ee84b257df27d60d15))
+* version handling in tests & git_version ([59c5dc7](https://github.com/n0-computer/iroh/commit/59c5dc78cf8067a3be3a19329d1998b69f9414a9))
+
+
+# [v0.1.2](https://github.com/n0-computer/iroh/compare/v0.1.1...iroh-v0.1.2) (2022-11-28)
+
+This relase brings about a couple of highlights, the first of which is the first relase of all `iroh-*` crates to crates.io. The second one being that we now support the experimental quic transport in libp2p.
+
+### Bug Fixes
+
+* **iroh-one:** Wire up mem addresses to each other ([#555](https://github.com/n0-computer/iroh/issues/555)) ([ee9677d](https://github.com/n0-computer/iroh/commit/ee9677d4001f15516068bf0f376e01199a1824aa))
+
+
+### Features
+
+* **ci:** improve protoc install & add code coverage checks ([#538](https://github.com/n0-computer/iroh/issues/538)) ([bcc20ce](https://github.com/n0-computer/iroh/commit/bcc20ce00fb19abc5ebbe03e9d315a01a7088881))
+* enable quic transport ([18e2f40](https://github.com/n0-computer/iroh/commit/18e2f400ed79c3522e290fe1c77b289879af6154))
+* **gateway:** add info page ([35955d6](https://github.com/n0-computer/iroh/commit/35955d6b9b505d2c35f99e4c618293c70bcca1a7))
+* Support `eth` domains  ([1d6b825](https://github.com/n0-computer/iroh/commit/1d6b825fe357a9fa958fdf426967516d3f689259))
+* switch to released libp2p@0.50 ([ae30f9e](https://github.com/n0-computer/iroh/commit/ae30f9ebadb2e3cf7e8bb53ce955dc043d5a8cfe))
+* **unixfs:** add rabin based chunking  ([b0a5783](https://github.com/n0-computer/iroh/commit/b0a57831ed4d5c2fcaeb535e6281216f81f7b108))
+
+
+# [v0.1.1](https://github.com/n0-computer/iroh/compare/v0.1.0...v0.1.1) (2022-11-21)
+
+## Bitswap client mode
+Iroh can now run in "client mode", which can _fetch_ content from bitswap, but not _provide_ content. This is useful if you're running on a lower-powered device or have limited bandwidth. To use client mode change your `p2p.config.toml`:
+```
+bitswap_server = false
+```
+
+## Use indexer nodes to find content providers
+Iroh can use network indexers like [cid.contact](https://cid.contact) to find providers of a given CID. To use the cid.contact indexer adjust your `gateway.config.toml` to add an `indexer_endpoint` URL:
+
+```
+indexer_endpoint = https://cid.contact/cid/
+```
+
+## Docker support
+Iroh now ships with docker images! Spin iroh up locally with:
+```
+$ cd iroh/docker
+$ docker-compose up
+```
+then run `iroh status` from another terminal if you already have iroh installed. Now you're backing iroh with docker! `docker-compose down` to stop. The docker compose file also includes helpful guidance on which ports to expose from each iroh service.
+
+We're shipping multi-arch [distroless](https://github.com/GoogleContainerTools/distroless) builds for amd64 & arm64 architectures.
+
+## Fixed a critical bug adding files
+We fixed a [known bug](https://github.com/n0-computer/iroh/issues/423) in iroh v0.1.0 that would break `iroh add` if files referenced the same CID on the way in. It's now fixed, and now we can happily do roundtrip add/get of the linux kernel, which is always fun 😊.
+
+
+## Benchmarks
+Benchmarks for this release coming soon. We'll update this readme once they're up.
+
+### Production Readiness
+Is this production ready? **Maybe**. Numerous projects are now using iroh in the wild. *You'll need to judge for yourself if iroh meets your needs.* Please reach out on our [discussion forums](https://github.com/n0-computer/iroh/discussions) if you have questions. We're going to keep the status at "Maybe" until we release a v1.0. v1.0 is currently slated for Q4 2023.
+
+
+### Bug Fixes
+
+* **`iroh-p2p`:** implement full local lookup ([#537](https://github.com/n0-computer/iroh/issues/537)) ([0c388b9](https://github.com/n0-computer/iroh/commit/0c388b959852a92e7955e6d2eeb1380948fb6f49))
+* breadcrumb links in gateway directory template ([#513](https://github.com/n0-computer/iroh/issues/513)) ([f429baa](https://github.com/n0-computer/iroh/commit/f429baac42b845de4f47cbacd103198fcba95d50))
+* **cli:** Respect the --cfg flag ([#506](https://github.com/n0-computer/iroh/issues/506)) ([e7bcac6](https://github.com/n0-computer/iroh/commit/e7bcac699dc677e94dd84d16c8b8b5e81eaa965f))
+* convert v0 -> v1 before base32 conversion ([#527](https://github.com/n0-computer/iroh/issues/527)) ([ab3969c](https://github.com/n0-computer/iroh/commit/ab3969c9318b3801bf3fc2ff6c6c5ee53f63c979))
+* Correct dependencies and build checks ([#484](https://github.com/n0-computer/iroh/issues/484)) ([7e9cdc3](https://github.com/n0-computer/iroh/commit/7e9cdc35918409b7c6820a5ba23ae417126cbfa9))
+* docker-compose RPC ports should only listen on loopback ([#524](https://github.com/n0-computer/iroh/issues/524)) ([8471e49](https://github.com/n0-computer/iroh/commit/8471e49b2d3a9031bc44ae47e3d80034b60db806)), closes [#520](https://github.com/n0-computer/iroh/issues/520)
+* iroh start service set construction ([#522](https://github.com/n0-computer/iroh/issues/522)) ([070be80](https://github.com/n0-computer/iroh/commit/070be80a56f6cf8f379cc7feeb454aa35c8f91a5))
+* **iroh-store:** `put_many` bug ([#507](https://github.com/n0-computer/iroh/issues/507)) ([88f1a49](https://github.com/n0-computer/iroh/commit/88f1a49feb64b732be82b3e3cc039f703bac8865))
+* Process -> Service in status command, add after help text ([#493](https://github.com/n0-computer/iroh/issues/493)) ([804255c](https://github.com/n0-computer/iroh/commit/804255cac91d637361c106bb2155df766fbbaa31))
+* **store:** Make store operations atomic ([#480](https://github.com/n0-computer/iroh/issues/480)) ([ac8ec35](https://github.com/n0-computer/iroh/commit/ac8ec35f0131347ad125e82b43356e16787ecf08))
+* Switch to tempfile for temporary test directories ([#509](https://github.com/n0-computer/iroh/issues/509)) ([89959cb](https://github.com/n0-computer/iroh/commit/89959cbf7b5d99de5ddc82121e85c111e5ffe055))
+* verify content fetched from racing http gateways ([e281a4a](https://github.com/n0-computer/iroh/commit/e281a4a1cd053f35299da4f735b65cc117b53338))
+
+
+### Features
+
+* bitswap client mode  ([2a8a515](https://github.com/n0-computer/iroh/commit/2a8a515ad3175cdd68630c17e4a8831ff9e7af3d))
+* **cli:** Environment variables to override directories  ([9a2220b](https://github.com/n0-computer/iroh/commit/9a2220b92a4bd008aaad015dea11bd651bbf4dbc))
+* dockerize iroh services ([#494](https://github.com/n0-computer/iroh/issues/494)) ([f8af48a](https://github.com/n0-computer/iroh/commit/f8af48a846e46a59243a8d30963ca188a04e68a3))
+* indexer resolution ([#476](https://github.com/n0-computer/iroh/issues/476)) ([f744949](https://github.com/n0-computer/iroh/commit/f7449493fb1f6b79beaa610c0c9f48224597b393))
+* **p2p:** dial MDNS peers ([5bee5b7](https://github.com/n0-computer/iroh/commit/5bee5b7a836e3948c80f683e28c3f2061df6dd87))
+* support lookup names in RPC addrs ([#500](https://github.com/n0-computer/iroh/issues/500)) ([144eef7](https://github.com/n0-computer/iroh/commit/144eef71681e8d56cb1441c52bd6dfe04c562e50))
+
+
 # v0.1.0 - 2022-10-28
 
 We’re on the board 🎉! This first release of iroh brings a new implementation of IPFS to the world. 

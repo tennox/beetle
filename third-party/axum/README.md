@@ -111,7 +111,7 @@ This crate uses `#![forbid(unsafe_code)]` to ensure everything is implemented in
 
 ## Minimum supported Rust version
 
-axum's MSRV is 1.56.
+axum's MSRV is 1.60.
 
 ## Examples
 
@@ -159,3 +159,4 @@ additional terms or conditions.
 [showcases]: https://github.com/tokio-rs/axum/blob/main/ECOSYSTEM.md#project-showcase
 [tutorials]: https://github.com/tokio-rs/axum/blob/main/ECOSYSTEM.md#tutorials
 [license]: https://github.com/tokio-rs/axum/blob/main/axum/LICENSE
+[`0.5.x`]: https://github.com/tokio-rs/axum/tree/0.5.x

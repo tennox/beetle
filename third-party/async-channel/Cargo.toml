@@ -13,12 +13,10 @@
 edition = "2018"
 rust-version = "1.38"
 name = "async-channel"
-version = "1.7.1"
+version = "1.8.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
 description = "Async multi-producer multi-consumer channel"
-homepage = "https://github.com/smol-rs/async-channel"
-documentation = "https://docs.rs/async-channel"
 readme = "README.md"
 keywords = [
     "mpmc",
@@ -35,7 +33,7 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/async-channel"
 
 [dependencies.concurrent-queue]
-version = "1.2.2"
+version = "2"
 
 [dependencies.event-listener]
 version = "2.4.0"

@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    body::HttpBody, error_handling::HandleErrorLayer, extract::OriginalUri, response::IntoResponse,
-    Json,
-};
+use crate::{error_handling::HandleErrorLayer, extract::OriginalUri, response::IntoResponse, Json};
 use serde_json::{json, Value};
 use tower::{limit::ConcurrencyLimitLayer, timeout::TimeoutLayer};
 
@@ -62,15 +59,7 @@ async fn multiple_ors_balanced_differently() {
 
     test("four", one.merge(two.merge(three.merge(four)))).await;
 
-    async fn test<S, ResBody>(name: &str, app: S)
-    where
-        S: Service<Request<Body>, Response = Response<ResBody>> + Clone + Send + 'static,
-        ResBody: HttpBody + Send + 'static,
-        ResBody::Data: Send,
-        ResBody::Error: Into<BoxError>,
-        S::Future: Send,
-        S::Error: Into<BoxError>,
-    {
+    async fn test(name: &str, app: Router) {
         let client = TestClient::new(app);
 
         for n in ["one", "two", "three", "four"].iter() {
@@ -240,7 +229,7 @@ async fn all_the_uris(
 
 #[tokio::test]
 async fn nesting_and_seeing_the_right_uri() {
-    let one = Router::new().nest("/foo", Router::new().route("/bar", get(all_the_uris)));
+    let one = Router::new().nest("/foo/", Router::new().route("/bar", get(all_the_uris)));
     let two = Router::new().route("/foo", get(all_the_uris));
 
     let client = TestClient::new(one.merge(two));
@@ -271,7 +260,7 @@ async fn nesting_and_seeing_the_right_uri() {
 #[tokio::test]
 async fn nesting_and_seeing_the_right_uri_at_more_levels_of_nesting() {
     let one = Router::new().nest(
-        "/foo",
+        "/foo/",
         Router::new().nest("/bar", Router::new().route("/baz", get(all_the_uris))),
     );
     let two = Router::new().route("/foo", get(all_the_uris));

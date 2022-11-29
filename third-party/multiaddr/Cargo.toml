@@ -12,18 +12,22 @@
 [package]
 edition = "2018"
 name = "multiaddr"
-version = "0.14.0"
-authors = ["dignifiedquire <dignifiedquire@gmail.com>", "Parity Technologies <admin@parity.io>"]
+version = "0.16.0"
+authors = [
+    "dignifiedquire <dignifiedquire@gmail.com>",
+    "Parity Technologies <admin@parity.io>",
+]
 description = "Implementation of the multiaddr format"
 homepage = "https://github.com/multiformats/rust-multiaddr"
 readme = "README.md"
-keywords = ["multiaddr", "ipfs"]
+keywords = [
+    "multiaddr",
+    "ipfs",
+]
 license = "MIT"
+
 [dependencies.arrayref]
 version = "0.3"
-
-[dependencies.bs58]
-version = "0.4.0"
 
 [dependencies.byteorder]
 version = "1.3.1"
@@ -31,9 +35,16 @@ version = "1.3.1"
 [dependencies.data-encoding]
 version = "2.1"
 
+[dependencies.multibase]
+version = "0.9.1"
+
 [dependencies.multihash]
 version = "0.16"
-features = ["std", "multihash-impl", "identity"]
+features = [
+    "std",
+    "multihash-impl",
+    "identity",
+]
 default-features = false
 
 [dependencies.percent-encoding]
@@ -52,6 +63,7 @@ version = "0.7"
 version = "2.1.0"
 optional = true
 default-features = false
+
 [dev-dependencies.bincode]
 version = "1"
 

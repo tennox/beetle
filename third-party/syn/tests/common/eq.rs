@@ -13,6 +13,8 @@ use rustc_ast::ast::AssocConstraint;
 use rustc_ast::ast::AssocConstraintKind;
 use rustc_ast::ast::AssocItemKind;
 use rustc_ast::ast::Async;
+use rustc_ast::ast::AttrArgs;
+use rustc_ast::ast::AttrArgsEq;
 use rustc_ast::ast::AttrId;
 use rustc_ast::ast::AttrItem;
 use rustc_ast::ast::AttrKind;
@@ -26,10 +28,12 @@ use rustc_ast::ast::BlockCheckMode;
 use rustc_ast::ast::BorrowKind;
 use rustc_ast::ast::ByRef;
 use rustc_ast::ast::CaptureBy;
+use rustc_ast::ast::Closure;
 use rustc_ast::ast::ClosureBinder;
 use rustc_ast::ast::Const;
 use rustc_ast::ast::Crate;
 use rustc_ast::ast::Defaultness;
+use rustc_ast::ast::DelimArgs;
 use rustc_ast::ast::EnumDef;
 use rustc_ast::ast::Expr;
 use rustc_ast::ast::ExprField;
@@ -71,13 +75,12 @@ use rustc_ast::ast::LitIntType;
 use rustc_ast::ast::LitKind;
 use rustc_ast::ast::Local;
 use rustc_ast::ast::LocalKind;
-use rustc_ast::ast::MacArgs;
-use rustc_ast::ast::MacArgsEq;
 use rustc_ast::ast::MacCall;
 use rustc_ast::ast::MacCallStmt;
 use rustc_ast::ast::MacDelimiter;
 use rustc_ast::ast::MacStmtStyle;
 use rustc_ast::ast::MacroDef;
+use rustc_ast::ast::MethodCall;
 use rustc_ast::ast::ModKind;
 use rustc_ast::ast::ModSpans;
 use rustc_ast::ast::Movability;
@@ -411,7 +414,9 @@ spanless_eq_struct!(AttributesData; attrs tokens);
 spanless_eq_struct!(BareFnTy; unsafety ext generic_params decl decl_span);
 spanless_eq_struct!(BindingAnnotation; 0 1);
 spanless_eq_struct!(Block; stmts id rules span tokens could_be_bare_literal);
+spanless_eq_struct!(Closure; binder capture_clause asyncness movability fn_decl body !fn_decl_span);
 spanless_eq_struct!(Crate; attrs items spans id is_placeholder);
+spanless_eq_struct!(DelimArgs; dspan delim tokens);
 spanless_eq_struct!(EnumDef; variants);
 spanless_eq_struct!(Expr; id kind span attrs !tokens);
 spanless_eq_struct!(ExprField; attrs id span ident expr is_shorthand is_placeholder);
@@ -434,6 +439,7 @@ spanless_eq_struct!(Local; pat ty kind id span attrs !tokens);
 spanless_eq_struct!(MacCall; path args prior_type_ascription);
 spanless_eq_struct!(MacCallStmt; mac style attrs tokens);
 spanless_eq_struct!(MacroDef; body macro_rules);
+spanless_eq_struct!(MethodCall; seg receiver args !span);
 spanless_eq_struct!(ModSpans; !inner_span !inject_use_span);
 spanless_eq_struct!(MutTy; ty mutbl);
 spanless_eq_struct!(NormalAttr; item tokens);
@@ -465,6 +471,8 @@ spanless_eq_enum!(AngleBracketedArg; Arg(0) Constraint(0));
 spanless_eq_enum!(AssocItemKind; Const(0 1 2) Fn(0) Type(0) MacCall(0));
 spanless_eq_enum!(AssocConstraintKind; Equality(term) Bound(bounds));
 spanless_eq_enum!(Async; Yes(span closure_id return_impl_trait_id) No);
+spanless_eq_enum!(AttrArgs; Empty Delimited(0) Eq(0 1));
+spanless_eq_enum!(AttrArgsEq; Ast(0) Hir(0));
 spanless_eq_enum!(AttrStyle; Outer Inner);
 spanless_eq_enum!(AttrTokenTree; Token(0 1) Delimited(0 1 2) Attributes(0));
 spanless_eq_enum!(BinOpKind; Add Sub Mul Div Rem And Or BitXor BitAnd BitOr Shl Shr Eq Lt Le Ne Ge Gt);
@@ -492,8 +500,6 @@ spanless_eq_enum!(IsAuto; Yes No);
 spanless_eq_enum!(LitFloatType; Suffixed(0) Unsuffixed);
 spanless_eq_enum!(LitIntType; Signed(0) Unsigned(0) Unsuffixed);
 spanless_eq_enum!(LocalKind; Decl Init(0) InitElse(0 1));
-spanless_eq_enum!(MacArgs; Empty Delimited(0 1 2) Eq(0 1));
-spanless_eq_enum!(MacArgsEq; Ast(0) Hir(0));
 spanless_eq_enum!(MacDelimiter; Parenthesis Bracket Brace);
 spanless_eq_enum!(MacStmtStyle; Semicolon Braces NoBraces);
 spanless_eq_enum!(ModKind; Loaded(0 1 2) Unloaded);
@@ -517,13 +523,13 @@ spanless_eq_enum!(VariantData; Struct(0 1) Tuple(0 1) Unit(0));
 spanless_eq_enum!(VisibilityKind; Public Restricted(path id shorthand) Inherited);
 spanless_eq_enum!(WherePredicate; BoundPredicate(0) RegionPredicate(0) EqPredicate(0));
 spanless_eq_enum!(ExprKind; Box(0) Array(0) ConstBlock(0) Call(0 1)
-    MethodCall(0 1 2 3) Tup(0) Binary(0 1 2) Unary(0 1) Lit(0) Cast(0 1)
-    Type(0 1) Let(0 1 2) If(0 1 2) While(0 1 2) ForLoop(0 1 2 3) Loop(0 1)
-    Match(0 1) Closure(0 1 2 3 4 5 6) Block(0 1) Async(0 1 2) Await(0)
-    TryBlock(0) Assign(0 1 2) AssignOp(0 1 2) Field(0 1) Index(0 1) Underscore
-    Range(0 1 2) Path(0 1) AddrOf(0 1 2) Break(0 1) Continue(0) Ret(0)
-    InlineAsm(0) MacCall(0) Struct(0) Repeat(0 1) Paren(0) Try(0) Yield(0)
-    Yeet(0) Err);
+    MethodCall(0) Tup(0) Binary(0 1 2) Unary(0 1) Lit(0) Cast(0 1) Type(0 1)
+    Let(0 1 2) If(0 1 2) While(0 1 2) ForLoop(0 1 2 3) Loop(0 1 2) Match(0 1)
+    Closure(0) Block(0 1) Async(0 1 2) Await(0) TryBlock(0) Assign(0 1 2)
+    AssignOp(0 1 2) Field(0 1) Index(0 1) Underscore Range(0 1 2) Path(0 1)
+    AddrOf(0 1 2) Break(0 1) Continue(0) Ret(0) InlineAsm(0) MacCall(0)
+    Struct(0) Repeat(0 1) Paren(0) Try(0) Yield(0) Yeet(0) IncludedBytes(0)
+    Err);
 spanless_eq_enum!(InlineAsmOperand; In(reg expr) Out(reg late expr)
     InOut(reg late expr) SplitInOut(reg late in_expr out_expr) Const(anon_const)
     Sym(sym));
@@ -698,7 +704,7 @@ fn is_escaped_literal_token(token: &Token, unescaped: Symbol) -> bool {
             kind: TokenKind::Literal(lit),
             span: _,
         } => match Lit::from_token_lit(*lit, DUMMY_SP) {
-            Ok(lit) => is_escaped_literal(&lit, unescaped),
+            Ok(lit) => is_escaped_literal_ast_lit(&lit, unescaped),
             Err(_) => false,
         },
         Token {
@@ -706,7 +712,7 @@ fn is_escaped_literal_token(token: &Token, unescaped: Symbol) -> bool {
             span: _,
         } => match nonterminal.as_ref() {
             Nonterminal::NtExpr(expr) => match &expr.kind {
-                ExprKind::Lit(lit) => is_escaped_literal(lit, unescaped),
+                ExprKind::Lit(lit) => is_escaped_literal_token_lit(lit, unescaped),
                 _ => false,
             },
             _ => false,
@@ -715,17 +721,17 @@ fn is_escaped_literal_token(token: &Token, unescaped: Symbol) -> bool {
     }
 }
 
-fn is_escaped_literal_macro_arg(arg: &MacArgsEq, unescaped: Symbol) -> bool {
+fn is_escaped_literal_macro_arg(arg: &AttrArgsEq, unescaped: Symbol) -> bool {
     match arg {
-        MacArgsEq::Ast(expr) => match &expr.kind {
-            ExprKind::Lit(lit) => is_escaped_literal(lit, unescaped),
+        AttrArgsEq::Ast(expr) => match &expr.kind {
+            ExprKind::Lit(lit) => is_escaped_literal_token_lit(lit, unescaped),
             _ => false,
         },
-        MacArgsEq::Hir(lit) => is_escaped_literal(lit, unescaped),
+        AttrArgsEq::Hir(lit) => is_escaped_literal_ast_lit(lit, unescaped),
     }
 }
 
-fn is_escaped_literal(lit: &Lit, unescaped: Symbol) -> bool {
+fn is_escaped_literal_ast_lit(lit: &Lit, unescaped: Symbol) -> bool {
     match lit {
         Lit {
             token_lit:
@@ -734,9 +740,32 @@ fn is_escaped_literal(lit: &Lit, unescaped: Symbol) -> bool {
                     symbol: _,
                     suffix: None,
                 },
-            kind: LitKind::Str(symbol, StrStyle::Cooked),
+            kind,
             span: _,
-        } => symbol.as_str().replace('\r', "") == unescaped.as_str().replace('\r', ""),
+        } => is_escaped_literal_lit_kind(kind, unescaped),
+        _ => false,
+    }
+}
+
+fn is_escaped_literal_token_lit(lit: &token::Lit, unescaped: Symbol) -> bool {
+    match lit {
+        token::Lit {
+            kind: token::LitKind::Str,
+            symbol: _,
+            suffix: None,
+        } => match LitKind::from_token_lit(*lit) {
+            Ok(lit_kind) => is_escaped_literal_lit_kind(&lit_kind, unescaped),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn is_escaped_literal_lit_kind(kind: &LitKind, unescaped: Symbol) -> bool {
+    match kind {
+        LitKind::Str(symbol, StrStyle::Cooked) => {
+            symbol.as_str().replace('\r', "") == unescaped.as_str().replace('\r', "")
+        }
         _ => false,
     }
 }
@@ -765,8 +794,8 @@ impl SpanlessEq for AttrKind {
                 let path = Path::from_ident(Ident::with_dummy_span(sym::doc));
                 SpanlessEq::eq(&path, &normal2.item.path)
                     && match &normal2.item.args {
-                        MacArgs::Empty | MacArgs::Delimited(..) => false,
-                        MacArgs::Eq(_span, token) => {
+                        AttrArgs::Empty | AttrArgs::Delimited(_) => false,
+                        AttrArgs::Eq(_span, token) => {
                             is_escaped_literal_macro_arg(token, *unescaped)
                         }
                     }

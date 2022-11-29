@@ -1,6 +1,6 @@
-//! # MatchIt
+//! # `matchit`
 //!
-//! [![Documentation](https://img.shields.io/badge/docs-0.5.0-4d76ae?style=for-the-badge)](https://docs.rs/matchit)
+//! [![Documentation](https://img.shields.io/badge/docs-0.7.0-4d76ae?style=for-the-badge)](https://docs.rs/matchit)
 //! [![Version](https://img.shields.io/crates/v/matchit?style=for-the-badge)](https://crates.io/crates/matchit)
 //! [![License](https://img.shields.io/crates/l/matchit?style=for-the-badge)](https://crates.io/crates/matchit)
 //! [![Actions](https://img.shields.io/github/workflow/status/ibraheemdev/matchit/Rust/master?style=for-the-badge)](https://github.com/ibraheemdev/matchit/actions)
@@ -10,19 +10,17 @@
 //! ```rust
 //! use matchit::Router;
 //!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut router = Router::new();
-//!     router.insert("/home", "Welcome!")?;
-//!     router.insert("/users/:id", "A User")?;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut router = Router::new();
+//! router.insert("/home", "Welcome!")?;
+//! router.insert("/users/:id", "A User")?;
 //!
-//!     let matched = router.at("/users/978")?;
-//!     assert_eq!(matched.params.get("id"), Some("978"));
-//!     assert_eq!(*matched.value, "A User");
-//!
-//!     Ok(())
-//! }
+//! let matched = router.at("/users/978")?;
+//! assert_eq!(matched.params.get("id"), Some("978"));
+//! assert_eq!(*matched.value, "A User");
+//! # Ok(())
+//! # }
 //! ```
-//!
 //!
 //! ## Parameters
 //!
@@ -48,7 +46,7 @@
 //!
 //! ### Catch-all Parameters
 //!
-//! Catch-all parameters start with `*` and match everything, including slashes. They must always be at the **end** of the route:
+//! Catch-all parameters start with `*` and match everything after the `/`. They must always be at the **end** of the route:
 //!
 //! ```rust
 //! # use matchit::Router;
@@ -56,9 +54,8 @@
 //! let mut m = Router::new();
 //! m.insert("/*p", true)?;
 //!
-//! assert_eq!(m.at("/")?.params.get("p"), Some("/"));
-//! assert_eq!(m.at("/foo.js")?.params.get("p"), Some("/foo.js"));
-//! assert_eq!(m.at("/c/bar.css")?.params.get("p"), Some("/c/bar.css"));
+//! assert_eq!(m.at("/foo.js")?.params.get("p"), Some("foo.js"));
+//! assert_eq!(m.at("/c/bar.css")?.params.get("p"), Some("c/bar.css"));
 //!
 //! # Ok(())
 //! # }
@@ -67,33 +64,14 @@
 //! ## Routing Priority
 //!
 //! Static and dynamic route segments are allowed to overlap. If they do, static segments will be given higher priority:
+//!
 //! ```rust
 //! # use matchit::Router;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut m = Router::new();
-//! m.insert("/home", "Welcome!").unwrap();  // priority: 1
+//! m.insert("/", "Welcome!").unwrap()    ;  // priority: 1
 //! m.insert("/about", "About Me").unwrap(); // priority: 1
-//! m.insert("/:other", "...").unwrap();     // priority: 2
-//!
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! Note that *catch-all* parameters are not allowed to overlap with other path segments. Attempting to insert a conflicting route will result
-//! in an error:
-//!
-//! ```rust
-//! # use matchit::{InsertError, Router};
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut m = Router::new();
-//! m.insert("/home", "Welcome!").unwrap();
-//!
-//! assert_eq!(
-//!     m.insert("/*filepath", "..."),
-//!     Err(InsertError::Conflict {
-//!         with: "/home".into()
-//!     })
-//! );
+//! m.insert("/*filepath", "...").unwrap();  // priority: 2
 //!
 //! # Ok(())
 //! # }
@@ -119,7 +97,6 @@
 //!
 //! This allows us to reduce the route search to a small number of branches. Child nodes on the same level of the tree are also prioritized
 //! by the number of children with registered values, increasing the chance of choosing the correct branch of the first try.
-
 #![deny(rust_2018_idioms, clippy::all)]
 
 mod error;

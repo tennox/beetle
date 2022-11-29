@@ -37,13 +37,15 @@ pub const DEFAULT_BOOTSTRAP: &[&str] = &[
 #[derive(PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
 pub struct Libp2pConfig {
     /// Local address.
-    pub listening_multiaddr: Multiaddr,
+    pub listening_multiaddrs: Vec<Multiaddr>,
     /// Bootstrap peer list.
     pub bootstrap_peers: Vec<Multiaddr>,
     /// Mdns discovery enabled.
     pub mdns: bool,
-    /// Bitswap discovery enabled.
-    pub bitswap: bool,
+    /// Bitswap server mode enabled.
+    pub bitswap_server: bool,
+    /// Bitswap client mode enabled.
+    pub bitswap_client: bool,
     /// Kademlia discovery enabled.
     pub kademlia: bool,
     /// Autonat holepunching enabled.
@@ -118,18 +120,20 @@ impl Source for Libp2pConfig {
 
         insert_into_config_map(&mut map, "kademlia", self.kademlia);
         insert_into_config_map(&mut map, "autonat", self.autonat);
-        insert_into_config_map(&mut map, "bitswap", self.bitswap);
+        insert_into_config_map(&mut map, "bitswap_client", self.bitswap_client);
+        insert_into_config_map(&mut map, "bitswap_server", self.bitswap_server);
         insert_into_config_map(&mut map, "mdns", self.mdns);
         insert_into_config_map(&mut map, "relay_server", self.relay_server);
         insert_into_config_map(&mut map, "relay_client", self.relay_client);
         insert_into_config_map(&mut map, "gossipsub", self.gossipsub);
         let peers: Vec<String> = self.bootstrap_peers.iter().map(|b| b.to_string()).collect();
         insert_into_config_map(&mut map, "bootstrap_peers", peers);
-        insert_into_config_map(
-            &mut map,
-            "listening_multiaddr",
-            self.listening_multiaddr.to_string(),
-        );
+        let addrs: Vec<String> = self
+            .listening_multiaddrs
+            .iter()
+            .map(|b| b.to_string())
+            .collect();
+        insert_into_config_map(&mut map, "listening_multiaddrs", addrs);
         Ok(map)
     }
 }
@@ -158,7 +162,10 @@ impl Default for Libp2pConfig {
             .collect();
 
         Self {
-            listening_multiaddr: "/ip4/0.0.0.0/tcp/4444".parse().unwrap(),
+            listening_multiaddrs: vec![
+                "/ip4/0.0.0.0/tcp/4444".parse().unwrap(),
+                "/ip4/0.0.0.0/udp/4445/quic-v1".parse().unwrap(),
+            ],
             bootstrap_peers,
             mdns: false,
             kademlia: true,
@@ -166,7 +173,8 @@ impl Default for Libp2pConfig {
             relay_server: true,
             relay_client: true,
             gossipsub: true,
-            bitswap: true,
+            bitswap_client: true,
+            bitswap_server: true,
             max_conns_pending_out: 256,
             max_conns_pending_in: 256,
             max_conns_in: 256,
@@ -239,6 +247,13 @@ mod tests {
             .map(|node| node.to_string())
             .collect();
 
+        let addrs: Vec<String> = default
+            .libp2p
+            .listening_multiaddrs
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect();
+
         let mut expect: Map<String, Value> = Map::new();
         expect.insert(
             "libp2p".to_string(),
@@ -307,7 +322,14 @@ mod tests {
         expect.insert("kademlia".to_string(), Value::new(None, default.kademlia));
         expect.insert("autonat".to_string(), Value::new(None, default.autonat));
         expect.insert("mdns".to_string(), Value::new(None, default.mdns));
-        expect.insert("bitswap".to_string(), Value::new(None, default.bitswap));
+        expect.insert(
+            "bitswap_server".to_string(),
+            Value::new(None, default.bitswap_server),
+        );
+        expect.insert(
+            "bitswap_client".to_string(),
+            Value::new(None, default.bitswap_client),
+        );
         expect.insert(
             "relay_server".to_string(),
             Value::new(None, default.relay_server),
@@ -321,10 +343,7 @@ mod tests {
             "bootstrap_peers".to_string(),
             Value::new(None, bootstrap_peers),
         );
-        expect.insert(
-            "listening_multiaddr".to_string(),
-            Value::new(None, default.listening_multiaddr.to_string()),
-        );
+        expect.insert("listening_multiaddrs".to_string(), Value::new(None, addrs));
 
         let got = default.collect().unwrap();
         for key in got.keys() {

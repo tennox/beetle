@@ -70,7 +70,7 @@
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/website/master/public/img/icons/tonic.svg"
 )]
 #![deny(rustdoc::broken_intra_doc_links)]
-#![doc(html_root_url = "https://docs.rs/tonic-build/0.8.2")]
+#![doc(html_root_url = "https://docs.rs/tonic-build/0.8.4")]
 #![doc(issue_tracker_base_url = "https://github.com/hyperium/tonic/issues/")]
 #![doc(test(no_crate_inject, attr(deny(rust_2018_idioms))))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -93,6 +93,9 @@ pub mod manual;
 pub mod client;
 /// Service code generation for Server
 pub mod server;
+
+mod code_gen;
+pub use code_gen::CodeGenBuilder;
 
 /// Service generation trait.
 ///
@@ -213,6 +216,14 @@ fn generate_attributes<'a>(
 
 // Generate a singular line of a doc comment
 fn generate_doc_comment<S: AsRef<str>>(comment: S) -> TokenStream {
+    let comment = comment.as_ref();
+
+    let comment = if !comment.starts_with(" ") {
+        format!(" {}", comment)
+    } else {
+        comment.to_string()
+    };
+
     let mut doc_stream = TokenStream::new();
 
     doc_stream.append(Ident::new("doc", Span::call_site()));

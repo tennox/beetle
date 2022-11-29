@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.56"
 name = "pest_derive"
-version = "2.4.1"
+version = "2.5.0"
 authors = ["Dragoș Tiselice <dragostiselice@gmail.com>"]
 description = "pest's derive macro"
 homepage = "https://pest.rs/"
@@ -34,11 +34,11 @@ name = "pest_derive"
 proc-macro = true
 
 [dependencies.pest]
-version = "2.4.1"
+version = "2.5.0"
 default-features = false
 
 [dependencies.pest_generator]
-version = "2.4.1"
+version = "2.5.0"
 default-features = false
 
 [features]

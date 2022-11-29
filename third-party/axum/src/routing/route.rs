@@ -2,6 +2,7 @@ use crate::{
     body::{boxed, Body, Empty, HttpBody},
     response::Response,
 };
+use axum_core::response::IntoResponse;
 use bytes::Bytes;
 use http::{
     header::{self, CONTENT_LENGTH},
@@ -16,9 +17,10 @@ use std::{
     task::{Context, Poll},
 };
 use tower::{
-    util::{BoxCloneService, Oneshot},
-    ServiceExt,
+    util::{BoxCloneService, MapResponseLayer, Oneshot},
+    ServiceBuilder, ServiceExt,
 };
+use tower_layer::Layer;
 use tower_service::Service;
 
 /// How routes are stored inside a [`Router`](super::Router).
@@ -28,12 +30,15 @@ use tower_service::Service;
 pub struct Route<B = Body, E = Infallible>(BoxCloneService<Request<B>, Response, E>);
 
 impl<B, E> Route<B, E> {
-    pub(super) fn new<T>(svc: T) -> Self
+    pub(crate) fn new<T>(svc: T) -> Self
     where
-        T: Service<Request<B>, Response = Response, Error = E> + Clone + Send + 'static,
+        T: Service<Request<B>, Error = E> + Clone + Send + 'static,
+        T::Response: IntoResponse + 'static,
         T::Future: Send + 'static,
     {
-        Self(BoxCloneService::new(svc))
+        Self(BoxCloneService::new(
+            svc.map_response(IntoResponse::into_response),
+        ))
     }
 
     pub(crate) fn oneshot_inner(
@@ -42,15 +47,34 @@ impl<B, E> Route<B, E> {
     ) -> Oneshot<BoxCloneService<Request<B>, Response, E>, Request<B>> {
         self.0.clone().oneshot(req)
     }
+
+    pub(crate) fn layer<L, NewReqBody, NewError>(self, layer: L) -> Route<NewReqBody, NewError>
+    where
+        L: Layer<Route<B, E>> + Clone + Send + 'static,
+        L::Service: Service<Request<NewReqBody>> + Clone + Send + 'static,
+        <L::Service as Service<Request<NewReqBody>>>::Response: IntoResponse + 'static,
+        <L::Service as Service<Request<NewReqBody>>>::Error: Into<NewError> + 'static,
+        <L::Service as Service<Request<NewReqBody>>>::Future: Send + 'static,
+        NewReqBody: 'static,
+        NewError: 'static,
+    {
+        let layer = ServiceBuilder::new()
+            .map_err(Into::into)
+            .layer(MapResponseLayer::new(IntoResponse::into_response))
+            .layer(layer)
+            .into_inner();
+
+        Route::new(layer.layer(self))
+    }
 }
 
-impl<ReqBody, E> Clone for Route<ReqBody, E> {
+impl<B, E> Clone for Route<B, E> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<ReqBody, E> fmt::Debug for Route<ReqBody, E> {
+impl<B, E> fmt::Debug for Route<B, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Route").finish()
     }
@@ -107,16 +131,6 @@ impl<B, E> RouteFuture<B, E> {
     ) -> Self {
         Self {
             kind: RouteFutureKind::Future { future },
-            strip_body: false,
-            allow_header: None,
-        }
-    }
-
-    pub(super) fn from_response(response: Response) -> Self {
-        Self {
-            kind: RouteFutureKind::Response {
-                response: Some(response),
-            },
             strip_body: false,
             allow_header: None,
         }

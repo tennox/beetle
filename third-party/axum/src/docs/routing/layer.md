@@ -65,5 +65,3 @@ details and a workaround.
 
 See [`middleware`](crate::middleware) for details on how error handling impacts
 middleware.
-
-[`Handler::layer`]: crate::handler::Handler::layer

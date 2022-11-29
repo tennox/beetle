@@ -6,7 +6,7 @@ use clap::Parser;
 use iroh_gateway::{bad_bits::BadBits, core::Core, metrics};
 #[cfg(not(target_os = "android"))]
 use iroh_one::config::CONFIG_FILE_NAME;
-#[cfg(all(feature = "uds-gateway", unix))]
+#[cfg(all(feature = "http-uds-gateway", unix))]
 use iroh_one::uds;
 use iroh_one::{
     cli::Args,
@@ -63,24 +63,24 @@ async fn main() -> Result<()> {
 
     let (store_rpc, p2p_rpc) = {
         let (store_recv, store_sender) = Addr::new_mem();
-        config.rpc_client.store_addr = Some(store_sender);
-        let store_rpc = iroh_one::mem_store::start(store_recv, config.clone().store).await?;
-
         let (p2p_recv, p2p_sender) = Addr::new_mem();
+        config.rpc_client.store_addr = Some(store_sender);
         config.rpc_client.p2p_addr = Some(p2p_sender);
-        let p2p_rpc = iroh_one::mem_p2p::start(p2p_recv, config.clone().p2p).await?;
+        config.synchronize_subconfigs();
+
+        let store_rpc = iroh_one::mem_store::start(store_recv, config.store.clone()).await?;
+
+        let p2p_rpc = iroh_one::mem_p2p::start(p2p_recv, config.p2p.clone()).await?;
         (store_rpc, p2p_rpc)
     };
 
-    #[cfg(not(feature = "uds-gateway"))]
+    #[cfg(not(feature = "http-uds-gateway"))]
     {
         if config.gateway.port == 0 {
             println!("Neither listening on an HTTP port, nor using UDS: check your configuration!");
             return Ok(());
         }
     }
-
-    config.synchronize_subconfigs();
 
     config.metrics = metrics::metrics_config_with_compile_time_info(config.metrics);
     println!("{:#?}", config);
@@ -114,6 +114,7 @@ async fn main() -> Result<()> {
         Arc::new(config.clone()),
         Arc::clone(&bad_bits),
         content_loader,
+        config.gateway.dns_resolver,
     )
     .await?;
 
@@ -133,7 +134,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    #[cfg(all(feature = "uds-gateway", unix))]
+    #[cfg(all(feature = "http-uds-gateway", unix))]
     let uds_server_task = {
         let mut path = tempfile::Builder::new()
             .prefix("iroh")
@@ -163,7 +164,7 @@ async fn main() -> Result<()> {
 
     store_rpc.abort();
     p2p_rpc.abort();
-    #[cfg(all(feature = "uds-gateway", unix))]
+    #[cfg(all(feature = "http-uds-gateway", unix))]
     uds_server_task.abort();
     core_task.abort();
 

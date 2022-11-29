@@ -1,11 +1,13 @@
 [package]
 name = "flatfs-store"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
-authors = ["Friedel Ziegelmayer <me@dignifiedquire.com>"]
+authors = ["dignifiedquire <me@dignifiedquire.com>"]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/n0-computer/iroh"
 description = "Implementation of FlatFS"
+rust-version = "1.63"
+publish = false
 
 [dependencies]
 anyhow = "1"

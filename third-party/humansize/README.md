@@ -1,4 +1,4 @@
-# **Humansize** ![travis badge](https://travis-ci.org/LeopoldArkham/humansize.svg?branch=master)
+# **Humansize** ![travis badge](https://travis-ci.org/LeopoldArkham/humansize.svg?branch=master) [![Actively Maintained](https://img.shields.io/badge/Maintenance%20Level-Actively%20Maintained-green.svg)](https://gist.github.com/cheerfulstoic/d107229326a01ff0f333a1d3476e068d)
 
 [Documentation](https://docs.rs/humansize/latest/humansize/)
 
@@ -17,7 +17,7 @@ Add humansize as a dependency to your project's `cargo.toml`:
 ```toml
 [dependencies]
 ...
-humansize = "2.0.0"
+humansize = "2.1.2"
 ```
 
 ### ... to easily format a size:

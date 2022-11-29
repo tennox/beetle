@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::{Attributes, Method, Service};
 use crate::{generate_doc_comments, naive_snake_case};
 use proc_macro2::TokenStream;
@@ -7,19 +9,46 @@ use quote::{format_ident, quote};
 ///
 /// This takes some `Service` and will generate a `TokenStream` that contains
 /// a public module with the generated client.
+#[deprecated(since = "0.8.3", note = "Use the CodeGenBuilder::generate_client")]
 pub fn generate<T: Service>(
     service: &T,
     emit_package: bool,
     proto_path: &str,
     compile_well_known_types: bool,
+    build_transport: bool,
     attributes: &Attributes,
+) -> TokenStream {
+    generate_internal(
+        service,
+        emit_package,
+        proto_path,
+        compile_well_known_types,
+        build_transport,
+        attributes,
+        &HashSet::default(),
+    )
+}
+
+pub(crate) fn generate_internal<T: Service>(
+    service: &T,
+    emit_package: bool,
+    proto_path: &str,
+    compile_well_known_types: bool,
+    build_transport: bool,
+    attributes: &Attributes,
+    disable_comments: &HashSet<String>,
 ) -> TokenStream {
     let service_ident = quote::format_ident!("{}Client", service.name());
     let client_mod = quote::format_ident!("{}_client", naive_snake_case(service.name()));
-    let methods = generate_methods(service, emit_package, proto_path, compile_well_known_types);
+    let methods = generate_methods(
+        service,
+        emit_package,
+        proto_path,
+        compile_well_known_types,
+        disable_comments,
+    );
 
-    let connect = generate_connect(&service_ident);
-    let service_doc = generate_doc_comments(service.comment());
+    let connect = generate_connect(&service_ident, build_transport);
 
     let package = if emit_package { service.package() } else { "" };
     let path = format!(
@@ -28,6 +57,12 @@ pub fn generate<T: Service>(
         if package.is_empty() { "" } else { "." },
         service.identifier()
     );
+
+    let service_doc = if disable_comments.contains(&path) {
+        TokenStream::new()
+    } else {
+        generate_doc_comments(service.comment())
+    };
 
     let mod_attributes = attributes.for_mod(package);
     let struct_attributes = attributes.for_struct(&path);
@@ -109,8 +144,8 @@ pub fn generate<T: Service>(
 }
 
 #[cfg(feature = "transport")]
-fn generate_connect(service_ident: &syn::Ident) -> TokenStream {
-    quote! {
+fn generate_connect(service_ident: &syn::Ident, enabled: bool) -> TokenStream {
+    let connect_impl = quote! {
         impl #service_ident<tonic::transport::Channel> {
             /// Attempt to create a new client by connecting to a given endpoint.
             pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
@@ -122,11 +157,17 @@ fn generate_connect(service_ident: &syn::Ident) -> TokenStream {
                 Ok(Self::new(conn))
             }
         }
+    };
+
+    if enabled {
+        connect_impl
+    } else {
+        TokenStream::new()
     }
 }
 
 #[cfg(not(feature = "transport"))]
-fn generate_connect(_service_ident: &syn::Ident) -> TokenStream {
+fn generate_connect(_service_ident: &syn::Ident, _enabled: bool) -> TokenStream {
     TokenStream::new()
 }
 
@@ -135,6 +176,7 @@ fn generate_methods<T: Service>(
     emit_package: bool,
     proto_path: &str,
     compile_well_known_types: bool,
+    disable_comments: &HashSet<String>,
 ) -> TokenStream {
     let mut stream = TokenStream::new();
     let package = if emit_package { service.package() } else { "" };
@@ -148,7 +190,15 @@ fn generate_methods<T: Service>(
             method.identifier()
         );
 
-        stream.extend(generate_doc_comments(method.comment()));
+        if !disable_comments.contains(&format!(
+            "{}{}{}.{}",
+            package,
+            if package.is_empty() { "" } else { "." },
+            service.identifier(),
+            method.identifier()
+        )) {
+            stream.extend(generate_doc_comments(method.comment()));
+        }
 
         let method = match (method.client_streaming(), method.server_streaming()) {
             (false, false) => generate_unary(method, proto_path, compile_well_known_types, path),

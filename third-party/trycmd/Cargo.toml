@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60.0"
 name = "trycmd"
-version = "0.14.4"
+version = "0.14.5"
 authors = ["Ed Page <eopage@gmail.com>"]
 include = [
     "src/**/*",
@@ -123,7 +123,7 @@ optional = true
 version = "1.1.0"
 
 [dependencies.snapbox]
-version = "0.4.1"
+version = "0.4.2"
 features = ["cmd"]
 default-features = false
 

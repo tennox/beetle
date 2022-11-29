@@ -67,7 +67,7 @@ fn fixture_add_file() -> Api {
             Some(StatusRow::new("store", 1, ServiceStatus::Serving)),
         )
     });
-    api.expect_add_stream().returning(|_ipfs_path, _| {
+    api.expect_add_stream().returning(|_ipfs_path, _, _| {
         let cid = Cid::from_str("QmYbcW4tXLXHWw753boCK8Y7uxLu5abXjyYizhLznq9PUR").unwrap();
         let add_event = AddEvent::ProgressDelta { cid, size: Some(0) };
 
@@ -88,7 +88,7 @@ fn fixture_add_directory() -> Api {
             Some(StatusRow::new("store", 1, ServiceStatus::Serving)),
         )
     });
-    api.expect_add_stream().returning(|_ipfs_path, _| {
+    api.expect_add_stream().returning(|_ipfs_path, _, _| {
         let cid = Cid::from_str("QmYbcW4tXLXHWw753boCK8Y7uxLu5abXjyYizhLznq9PUR").unwrap();
         let add_event = AddEvent::ProgressDelta { cid, size: Some(0) };
 
@@ -152,6 +152,32 @@ fn fixture_get_unwrapped_symlink() -> Api {
     api
 }
 
+fn fixture_start_status_stop() -> Api {
+    let mut api = Api::default();
+    api.expect_check().returning(|| {
+        StatusTable::new(
+            Some(StatusRow::new("gateway", 1, ServiceStatus::Serving)),
+            Some(StatusRow::new("p2p", 1, ServiceStatus::Serving)),
+            Some(StatusRow::new("store", 1, ServiceStatus::Serving)),
+        )
+    });
+    api.expect_check().returning(|| {
+        StatusTable::new(
+            Some(StatusRow::new("gateway", 1, ServiceStatus::Serving)),
+            Some(StatusRow::new("p2p", 1, ServiceStatus::Serving)),
+            Some(StatusRow::new("store", 1, ServiceStatus::Serving)),
+        )
+    });
+    api.expect_check().returning(|| {
+        StatusTable::new(
+            Some(StatusRow::new("gateway", 1, ServiceStatus::Unknown)),
+            Some(StatusRow::new("p2p", 1, ServiceStatus::Unknown)),
+            Some(StatusRow::new("store", 1, ServiceStatus::Unknown)),
+        )
+    });
+    api
+}
+
 fn register_fixtures() -> FixtureRegistry {
     [
         ("lookup".to_string(), fixture_lookup as GetFixture),
@@ -176,6 +202,10 @@ fn register_fixtures() -> FixtureRegistry {
         (
             "get_unwrapped_symlink".to_string(),
             fixture_get_unwrapped_symlink as GetFixture,
+        ),
+        (
+            "start_status_stop".to_string(),
+            fixture_start_status_stop as GetFixture,
         ),
     ]
     .into_iter()

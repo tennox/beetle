@@ -4,8 +4,7 @@ use std::{env, fs};
 
 #[cfg(feature = "bindgen")]
 fn generate_bindings(defs: Vec<&str>, headerpaths: Vec<PathBuf>) {
-    let bindings = bindgen::Builder::default()
-        .header("zstd.h");
+    let bindings = bindgen::Builder::default().header("zstd.h");
     #[cfg(feature = "zdict_builder")]
     let bindings = bindings.header("zdict.h");
     let bindings = bindings
@@ -79,6 +78,19 @@ fn enable_threading(config: &mut cc::Build) {
 #[cfg(not(feature = "zstdmt"))]
 fn enable_threading(_config: &mut cc::Build) {}
 
+/// This function would find the first flag in `flags` that is supported
+/// and add that to `config`.
+#[allow(dead_code)]
+fn flag_if_supported_with_fallbacks(config: &mut cc::Build, flags: &[&str]) {
+    let option = flags
+        .iter()
+        .find(|flag| config.is_flag_supported(flag).unwrap_or_default());
+
+    if let Some(flag) = option {
+        config.flag(flag);
+    }
+}
+
 fn compile_zstd() {
     let mut config = cc::Build::new();
 
@@ -92,8 +104,12 @@ fn compile_zstd() {
         #[cfg(feature = "legacy")]
         "zstd/lib/legacy",
     ] {
-        for entry in fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
+        let mut entries: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .map(|r| r.unwrap().path())
+            .collect();
+        entries.sort();
+        for path in entries {
             // Skip xxhash*.c files: since we are using the "PRIVATE API"
             // mode, it will be inlined in the headers.
             if path
@@ -111,13 +127,14 @@ fn compile_zstd() {
 
     // Either include ASM files, or disable ASM entirely.
     // Also disable it on windows, apparently it doesn't do well with these .S files at the moment.
-    if cfg!(any(target_os = "windows", feature = "no_asm")) {
+    if cfg!(feature = "no_asm") || std::env::var("CARGO_CFG_WINDOWS").is_ok() {
         config.define("ZSTD_DISABLE_ASM", Some(""));
     } else {
         config.file("zstd/lib/decompress/huf_decompress_amd64.S");
     }
 
-    let is_wasm_unknown_unknown = env::var("TARGET").ok() == Some("wasm32-unknown-unknown".into());
+    let is_wasm_unknown_unknown =
+        env::var("TARGET").ok() == Some("wasm32-unknown-unknown".into());
 
     if is_wasm_unknown_unknown {
         println!("cargo:rerun-if-changed=wasm-shim/stdlib.h");
@@ -128,20 +145,30 @@ fn compile_zstd() {
     }
 
     // Some extra parameters
-    config.opt_level(3);
     config.include("zstd/lib/");
     config.include("zstd/lib/common");
     config.warnings(false);
 
     config.define("ZSTD_LIB_DEPRECATED", Some("0"));
 
+    // TODO: re-enable thin lto when a more robust solution is found.
+    /*
+    if config.get_compiler().is_like_gnu() {
+        config.flag_if_supported("-fwhopr");
+    } else {
+        // gcc has a -flto but not -flto=thin
+        // Apparently this is causing crashes on windows-gnu?
+        config.flag_if_supported("-flto=thin");
+    }
+    */
+
     #[cfg(feature = "thin")]
     {
         config.define("HUF_FORCE_DECOMPRESS_X1", Some("1"));
         config.define("ZSTD_FORCE_DECOMPRESS_SEQUENCES_SHORT", Some("1"));
         config.define("ZSTD_NO_INLINE ", Some("1"));
-        config.flag_if_supported("-flto=thin");
-        config.flag_if_supported("-Oz");
+
+        flag_if_supported_with_fallbacks(&mut config, &["-Oz", "-Os", "-O2"]);
     }
 
     // Hide symbols from resulting library,

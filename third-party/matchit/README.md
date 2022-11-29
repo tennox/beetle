@@ -1,6 +1,6 @@
-# MatchIt
+# `matchit`
 
-[![Documentation](https://img.shields.io/badge/docs-0.4.6-4d76ae?style=for-the-badge)](https://docs.rs/matchit)
+[![Documentation](https://img.shields.io/badge/docs-0.7.0-4d76ae?style=for-the-badge)](https://docs.rs/matchit)
 [![Version](https://img.shields.io/crates/v/matchit?style=for-the-badge)](https://crates.io/crates/matchit)
 [![License](https://img.shields.io/crates/l/matchit?style=for-the-badge)](https://crates.io/crates/matchit)
 [![Actions](https://img.shields.io/github/workflow/status/ibraheemdev/matchit/Rust/master?style=for-the-badge)](https://github.com/ibraheemdev/matchit/actions)
@@ -23,7 +23,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-
 ## Parameters
 
 Along with static routes, the router also supports dynamic route segments. These can either be named or catch-all parameters:
@@ -43,39 +42,26 @@ assert!(m.at("/users").is_err());
 
 ### Catch-all Parameters
 
-Catch-all parameters start with `*` and match everything, including slashes. They must always be at the **end** of the route:
+Catch-all parameters start with `*` and match everything after the `/`. They must always be at the **end** of the route:
 
 ```rust,ignore
 let mut m = Router::new();
 m.insert("/*p", true)?;
 
-assert_eq!(m.at("/")?.params.get("p"), Some("/"));
-assert_eq!(m.at("/foo.js")?.params.get("p"), Some("/foo.js"));
-assert_eq!(m.at("/c/bar.css")?.params.get("p"), Some("/c/bar.css"));
+assert_eq!(m.at("/")?.params.get("p"), Some(""));
+assert_eq!(m.at("/foo.js")?.params.get("p"), Some("foo.js"));
+assert_eq!(m.at("/c/bar.css")?.params.get("p"), Some("c/bar.css"));
 ```
 
 ## Routing Priority
 
 Static and dynamic route segments are allowed to overlap. If they do, static segments will be given higher priority:
+
 ```rust,ignore
 let mut m = Router::new();
-m.insert("/home", "Welcome!").unwrap();  // priority: 1
+m.insert("/", "Welcome!").unwrap();      // priority: 1
 m.insert("/about", "About Me").unwrap(); // priority: 1
-m.insert("/:other", "...").unwrap();     // priority: 2
-```
-
-Note that *catch-all* parameters are not allowed to overlap with other path segments. Attempting to insert a conflicting route will result
-in an error:
-```rust,ignore
-let mut m = Router::new();
-m.insert("/home", "Welcome!").unwrap();
-
-assert_eq!(
-    m.insert("/*filepath", "..."),
-    Err(InsertError::Conflict {
-        with: "/home".into()
-    })
-);
+m.insert("/*filepath", "...").unwrap();  // priority: 2
 ```
 
 ## How does it work?
@@ -102,23 +88,26 @@ by the number of children with registered values, increasing the chance of choos
 # Benchmarks
 
 As it turns out, this method of routing is extremely fast. In a benchmark matching 4 paths against 130 registered routes, `matchit` find the correct routes
-in just over 200 nanoseconds, an order of magnitude faster than most other routers. You can view the benchmark code [here](https://github.com/ibraheemdev/matchit/blob/master/benches/bench.rs). 
+in under 200 nanoseconds, an order of magnitude faster than most other routers. You can view the benchmark code [here](https://github.com/ibraheemdev/matchit/blob/master/benches/bench.rs). 
 
 ```text
 Compare Routers/matchit 
-time:   [219.10 ns 219.38 ns 219.70 ns]
+time:   [197.57 ns 198.74 ns 199.83 ns]
 
-Compare Routers/actix   
-time:   [31.629 us 31.664 us 31.701 us]
+Compare Routers/actix
+time:   [26.805 us 26.811 us 26.816 us]
 
 Compare Routers/path-tree
 time:   [468.95 ns 470.34 ns 471.65 ns]
 
-Compare Routers/regex   
-time:   [21.995 us 22.144 us 22.319 us]
+Compare Routers/regex
+time:   [22.539 us 22.584 us 22.639 us]
 
 Compare Routers/route-recognizer
-time:   [4.2389 us 4.2434 us 4.2482 us]
+time:   [3.7552 us 3.7732 us 3.8027 us]
+
+Compare Routers/routefinder
+time:   [5.7313 us 5.7405 us 5.7514 us]
 ```
 
 # Credits

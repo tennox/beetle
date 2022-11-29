@@ -11,8 +11,9 @@
 
 [package]
 edition = "2021"
+rust-version = "1.60"
 name = "axum"
-version = "0.5.17"
+version = "0.6.1"
 description = "Web framework that focuses on ergonomics and modularity"
 homepage = "https://github.com/tokio-rs/axum"
 readme = "README.md"
@@ -45,14 +46,18 @@ features = [
     "ws",
 ]
 
+[[bench]]
+name = "benches"
+harness = false
+
 [dependencies.async-trait]
 version = "0.1.43"
 
 [dependencies.axum-core]
-version = "0.2.9"
+version = "0.3.0"
 
 [dependencies.axum-macros]
-version = "0.2.3"
+version = "0.3.0"
 optional = true
 
 [dependencies.base64]
@@ -82,17 +87,13 @@ version = "0.4.4"
 
 [dependencies.hyper]
 version = "0.14.14"
-features = [
-    "server",
-    "tcp",
-    "stream",
-]
+features = ["stream"]
 
 [dependencies.itoa]
 version = "1.0.1"
 
 [dependencies.matchit]
-version = "0.5.0"
+version = "0.7"
 
 [dependencies.memchr]
 version = "2.4.1"
@@ -118,6 +119,10 @@ version = "1.0"
 features = ["raw_value"]
 optional = true
 
+[dependencies.serde_path_to_error]
+version = "0.1.8"
+optional = true
+
 [dependencies.serde_urlencoded]
 version = "0.7"
 optional = true
@@ -130,8 +135,10 @@ optional = true
 version = "0.1.1"
 
 [dependencies.tokio]
-version = "1"
+version = "1.21"
 features = ["time"]
+optional = true
+package = "tokio"
 
 [dependencies.tokio-tungstenite]
 version = "0.17.2"
@@ -139,10 +146,7 @@ optional = true
 
 [dependencies.tower]
 version = "0.4.13"
-features = [
-    "util",
-    "make",
-]
+features = ["util"]
 default-features = false
 
 [dependencies.tower-http]
@@ -153,7 +157,7 @@ features = [
 ]
 
 [dependencies.tower-layer]
-version = "0.3"
+version = "0.3.2"
 
 [dependencies.tower-service]
 version = "0.3"
@@ -187,7 +191,7 @@ features = ["derive"]
 version = "1.0"
 
 [dev-dependencies.tokio]
-version = "1.6.1"
+version = "1.21"
 features = [
     "macros",
     "rt",
@@ -195,6 +199,7 @@ features = [
     "net",
     "test-util",
 ]
+package = "tokio"
 
 [dev-dependencies.tokio-stream]
 version = "0.1"
@@ -225,6 +230,9 @@ features = [
     "v4",
 ]
 
+[build-dependencies.rustversion]
+version = "1.0.9"
+
 [features]
 __private_docs = [
     "tower/full",
@@ -237,20 +245,31 @@ default = [
     "matched-path",
     "original-uri",
     "query",
+    "tokio",
     "tower-log",
 ]
-form = ["serde_urlencoded"]
+form = ["dep:serde_urlencoded"]
 http1 = ["hyper/http1"]
 http2 = ["hyper/http2"]
-json = ["serde_json"]
-macros = ["axum-macros"]
+json = [
+    "dep:serde_json",
+    "dep:serde_path_to_error",
+]
+macros = ["dep:axum-macros"]
 matched-path = []
-multipart = ["multer"]
+multipart = ["dep:multer"]
 original-uri = []
-query = ["serde_urlencoded"]
+query = ["dep:serde_urlencoded"]
+tokio = [
+    "dep:tokio",
+    "hyper/server",
+    "hyper/tcp",
+    "tower/make",
+]
 tower-log = ["tower/log"]
 ws = [
-    "tokio-tungstenite",
-    "sha-1",
-    "base64",
+    "tokio",
+    "dep:tokio-tungstenite",
+    "dep:sha-1",
+    "dep:base64",
 ]

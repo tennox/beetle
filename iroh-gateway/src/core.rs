@@ -2,6 +2,7 @@ use axum::Router;
 use iroh_resolver::content_loader::ContentLoader;
 use iroh_rpc_types::gateway::GatewayServerAddr;
 
+use iroh_resolver::dns_resolver::Config as DnsResolverConfig;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -33,6 +34,7 @@ impl<T: ContentLoader + std::marker::Unpin> Core<T> {
         rpc_addr: GatewayServerAddr,
         bad_bits: Arc<Option<RwLock<BadBits>>>,
         content_loader: T,
+        dns_resolver_config: DnsResolverConfig,
     ) -> anyhow::Result<Self> {
         tokio::spawn(async move {
             if let Err(err) = rpc::new(rpc_addr, Gateway::default()).await {
@@ -48,7 +50,7 @@ impl<T: ContentLoader + std::marker::Unpin> Core<T> {
             "not_found".to_string(),
             templates::NOT_FOUND_TEMPLATE.to_string(),
         );
-        let client = Client::<T>::new(&content_loader);
+        let client = Client::<T>::new(&content_loader, dns_resolver_config);
 
         Ok(Self {
             state: Arc::new(State {
@@ -76,6 +78,7 @@ impl<T: ContentLoader + std::marker::Unpin> Core<T> {
         config: Arc<dyn StateConfig>,
         bad_bits: Arc<Option<RwLock<BadBits>>>,
         content_loader: T,
+        dns_resolver_config: DnsResolverConfig,
     ) -> anyhow::Result<Arc<State<T>>> {
         let mut templates = HashMap::new();
         templates.insert(
@@ -86,7 +89,7 @@ impl<T: ContentLoader + std::marker::Unpin> Core<T> {
             "not_found".to_string(),
             templates::NOT_FOUND_TEMPLATE.to_string(),
         );
-        let client = Client::new(&content_loader);
+        let client = Client::new(&content_loader, dns_resolver_config);
         Ok(Arc::new(State {
             config,
             client,
@@ -147,9 +150,15 @@ mod tests {
         };
         let content_loader =
             FullLoader::new(rpc_client.clone(), loader_config).expect("invalid config");
-        let core = Core::new(config, rpc_addr, Arc::new(None), content_loader)
-            .await
-            .unwrap();
+        let core = Core::new(
+            config,
+            rpc_addr,
+            Arc::new(None),
+            content_loader,
+            DnsResolverConfig::default(),
+        )
+        .await
+        .unwrap();
         let server = core.server();
         let addr = server.local_addr();
         let core_task = tokio::spawn(async move {
@@ -170,6 +179,35 @@ mod tests {
         let task =
             tokio::spawn(async move { iroh_store::rpc::new(server_addr, store).await.unwrap() });
         (client_addr, task)
+    }
+
+    async fn put_directory_with_files(
+        rpc_client: &RpcClient,
+        dir: &str,
+        files: &[(&str, Vec<u8>)],
+    ) -> (Cid, Vec<Cid>) {
+        let store = rpc_client.try_store().unwrap();
+        let mut cids = vec![];
+        let mut dir_builder = DirectoryBuilder::new();
+        dir_builder.name(dir);
+        for (name, content) in files {
+            let file = FileBuilder::new()
+                .name(*name)
+                .content_bytes(content.clone())
+                .build()
+                .await
+                .unwrap();
+            dir_builder.add_file(file);
+        }
+
+        let root_dir = dir_builder.build().unwrap();
+        let mut parts = root_dir.encode();
+        while let Some(part) = parts.next().await {
+            let (cid, bytes, links) = part.unwrap().into_parts();
+            cids.push(cid);
+            store.put(cid, bytes, links).await.unwrap();
+        }
+        (*cids.last().unwrap(), cids)
     }
 
     #[tokio::test]
@@ -222,31 +260,12 @@ mod tests {
 
         let dir = "demo";
         let files = [
-            ("hello.txt".to_string(), b"ola".to_vec()),
-            ("world.txt".to_string(), b"mundo".to_vec()),
+            ("hello.txt", b"ola".to_vec()),
+            ("world.txt", b"mundo".to_vec()),
         ];
 
         // add a directory with two files to the store.
-        let (root_cid, all_cids) = {
-            let store = rpc_client.try_store().unwrap();
-            let mut cids = vec![];
-            let mut dir_builder = DirectoryBuilder::new();
-            dir_builder.name(dir);
-            for (name, content) in &files {
-                let mut file = FileBuilder::new();
-                file.name(name).content_bytes(content.clone());
-                dir_builder.add_file(file.build().await.unwrap());
-            }
-
-            let root_dir = dir_builder.build().unwrap();
-            let mut parts = root_dir.encode();
-            while let Some(part) = parts.next().await {
-                let (cid, bytes, links) = part.unwrap().into_parts();
-                cids.push(cid);
-                store.put(cid, bytes, links).await.unwrap();
-            }
-            (*cids.last().unwrap(), cids)
-        };
+        let (root_cid, all_cids) = put_directory_with_files(&rpc_client, dir, &files).await;
 
         // request the root cid as a recursive car
         let res = {
@@ -298,13 +317,68 @@ mod tests {
                 .collect::<Vec<_>>(),
             files
                 .iter()
-                .map(|(name, _content)| name.clone())
+                .map(|(name, _content)| name.to_string())
                 .collect::<Vec<_>>()
         );
 
         for (i, node) in nodes[1..].iter().enumerate() {
             assert_eq!(node, &UnixfsNode::Raw(files[i].1.clone().into()));
         }
+
+        core_task.abort();
+        core_task.await.unwrap_err();
+        store_task.abort();
+        store_task.await.unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn test_head_request_to_file() {
+        let (store_client_addr, store_task) = spawn_store().await;
+        let mut config = Config::new(
+            0,
+            RpcClientConfig {
+                gateway_addr: None,
+                p2p_addr: None,
+                store_addr: Some(store_client_addr),
+                channels: Some(1),
+            },
+        );
+        config.set_default_headers();
+
+        let (addr, rpc_client, core_task) = spawn_gateway(Arc::new(config)).await;
+
+        let dir = "demo";
+        let files = [
+            ("hello.txt", b"ola".to_vec()),
+            ("world.txt", b"mundo".to_vec()),
+        ];
+
+        // add a directory with two files to the store.
+        let (root_cid, _) = put_directory_with_files(&rpc_client, dir, &files).await;
+
+        // request the root cid as a recursive car
+        let res = {
+            let client = hyper::Client::new();
+            let uri = hyper::Uri::builder()
+                .scheme("http")
+                .authority(format!("localhost:{}", addr.port()))
+                .path_and_query(format!("/ipfs/{}/{}", root_cid, "world.txt"))
+                .build()
+                .unwrap();
+            let req = hyper::Request::builder()
+                .method("HEAD")
+                .uri(uri)
+                .body(hyper::Body::empty())
+                .unwrap();
+            client.request(req).await.unwrap()
+        };
+
+        assert_eq!(http::StatusCode::OK, res.status());
+        assert!(res.headers().get("content-length").is_some());
+        assert_eq!(res.headers().get("content-length").unwrap(), "5");
+
+        let (body, _) = res.into_body().into_future().await;
+        assert!(body.is_none());
 
         core_task.abort();
         core_task.await.unwrap_err();

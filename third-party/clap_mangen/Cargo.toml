@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60.0"
 name = "clap_mangen"
-version = "0.2.4"
+version = "0.2.5"
 include = [
     "build.rs",
     "src/**/*",

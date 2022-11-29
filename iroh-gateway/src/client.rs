@@ -13,6 +13,7 @@ use iroh_metrics::{
     gateway::{GatewayHistograms, GatewayMetrics},
     observe, record,
 };
+use iroh_resolver::dns_resolver::Config;
 use iroh_resolver::{
     content_loader::ContentLoader,
     resolver::{
@@ -90,10 +91,19 @@ impl<T: ContentLoader + std::marker::Unpin> http_body::Body for PrettyStreamBody
 }
 
 impl<T: ContentLoader + std::marker::Unpin> Client<T> {
-    pub fn new(rpc_client: &T) -> Self {
+    pub fn new(rpc_client: &T, dns_resolver_config: Config) -> Self {
         Self {
-            resolver: Resolver::new(rpc_client.clone()),
+            resolver: Resolver::with_dns_resolver(rpc_client.clone(), dns_resolver_config),
         }
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn retrieve_path_metadata(
+        &self,
+        path: iroh_resolver::resolver::Path,
+    ) -> Result<Out, String> {
+        info!("retrieve path metadata {}", path);
+        self.resolver.resolve(path).await.map_err(|e| e.to_string())
     }
 
     #[tracing::instrument(skip(self))]
@@ -104,23 +114,19 @@ impl<T: ContentLoader + std::marker::Unpin> Client<T> {
         range: Option<Range<u64>>,
     ) -> Result<(FileResult<T>, Metadata), String> {
         info!("get file {}", path);
-        let res = self
-            .resolver
-            .resolve(path)
-            .await
-            .map_err(|e| e.to_string())?;
-        let metadata = res.metadata().clone();
+        let path_metadata = self.retrieve_path_metadata(path).await?;
+        let metadata = path_metadata.metadata().clone();
         record_ttfb_metrics(start_time, &metadata.source);
 
-        if res.is_dir() {
-            let body = FileResult::Directory(res);
+        if path_metadata.is_dir() {
+            let body = FileResult::Directory(path_metadata);
             Ok((body, metadata))
         } else {
             let mut clip = 0;
             if let Some(range) = &range {
                 clip = range.end as usize;
             }
-            let reader = res
+            let reader = path_metadata
                 .pretty(
                     self.resolver.clone(),
                     OutMetrics { start: start_time },

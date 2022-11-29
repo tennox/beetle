@@ -1,3 +1,13 @@
+# Version 0.8.14
+
+- Fix build script bug introduced in 0.8.13. (#932)
+
+# Version 0.8.13
+
+**Note:** This release has been yanked due to regression fixed in 0.8.14.
+
+- Improve support for custom targets. (#922)
+
 # Version 0.8.12
 
 - Removes the dependency on the `once_cell` crate to restore the MSRV. (#913)

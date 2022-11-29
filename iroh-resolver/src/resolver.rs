@@ -1,5 +1,6 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt::{self, Debug, Display, Formatter};
+use std::hash::BuildHasher;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -32,6 +33,7 @@ use iroh_metrics::{
 
 use crate::codecs::Codec;
 use crate::content_loader::ContentLoader;
+use crate::dns_resolver::{Config, DnsResolver};
 use crate::unixfs::{
     poll_read_buf_at_pos, DataType, Link, UnixfsChildStream, UnixfsContentReader, UnixfsNode,
 };
@@ -658,6 +660,7 @@ pub enum Source {
 #[derive(Debug, Clone)]
 pub struct Resolver<T: ContentLoader> {
     loader: T,
+    dns_resolver: Arc<DnsResolver>,
     next_id: Arc<AtomicU64>,
     _worker: Arc<JoinHandle<()>>,
     session_closer: async_channel::Sender<ContextId>,
@@ -734,8 +737,11 @@ struct InnerLoaderContext {
 
 impl<T: ContentLoader> Resolver<T> {
     pub fn new(loader: T) -> Self {
-        let (session_closer_s, session_closer_r) = async_channel::bounded(2048);
+        Self::with_dns_resolver(loader, Config::default())
+    }
 
+    pub fn with_dns_resolver(loader: T, dns_resolver_config: Config) -> Self {
+        let (session_closer_s, session_closer_r) = async_channel::bounded(2048);
         let loader_thread = loader.clone();
         let worker = tokio::task::spawn(async move {
             // GC Loop for sessions
@@ -754,6 +760,7 @@ impl<T: ContentLoader> Resolver<T> {
 
         Resolver {
             loader,
+            dns_resolver: Arc::new(DnsResolver::from_config(dns_resolver_config)),
             next_id: Arc::new(AtomicU64::new(0)),
             _worker: Arc::new(worker),
             session_closer: session_closer_s,
@@ -1189,7 +1196,7 @@ impl<T: ContentLoader> Resolver<T> {
                         current = Path::from_cid(c);
                     }
                     CidOrDomain::Domain(ref domain) => {
-                        let mut records = resolve_dnslink(domain).await?;
+                        let mut records = self.dns_resolver.resolve_dnslink(domain).await?;
                         if records.is_empty() {
                             bail!("no valid dnslink records found for {}", domain);
                         }
@@ -1243,81 +1250,49 @@ pub fn parse_links(cid: &Cid, bytes: &[u8]) -> Result<Vec<Cid>> {
     Ok(links)
 }
 
-#[tracing::instrument]
-async fn resolve_dnslink(url: &str) -> Result<Vec<Path>> {
-    let url = format!("_dnslink.{}.", url);
-    let records = resolve_txt_record(&url).await?;
-    let records = records
-        .into_iter()
-        .filter(|r| r.starts_with("dnslink="))
-        .map(|r| {
-            let p = r.trim_start_matches("dnslink=").trim();
-            p.parse()
-        })
-        .collect::<Result<_>>()?;
-    Ok(records)
-}
+#[async_trait]
+impl<S: BuildHasher + Clone + Send + Sync + 'static> ContentLoader for HashMap<Cid, Bytes, S> {
+    async fn load_cid(&self, cid: &Cid, _ctx: &LoaderContext) -> Result<LoadedCid> {
+        match self.get(cid) {
+            Some(b) => Ok(LoadedCid {
+                data: b.clone(),
+                source: Source::Bitswap,
+            }),
+            None => bail!("not found"),
+        }
+    }
 
-async fn resolve_txt_record(url: &str) -> Result<Vec<String>> {
-    use trust_dns_resolver::config::*;
-    use trust_dns_resolver::AsyncResolver;
+    async fn stop_session(&self, _ctx: ContextId) -> Result<()> {
+        // no session tracking
+        Ok(())
+    }
 
-    // Construct a new Resolver with default configuration options
-    let resolver = AsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())?;
-
-    let txt_response = resolver.txt_lookup(url).await?;
-
-    let out = txt_response.into_iter().map(|r| r.to_string()).collect();
-    Ok(out)
+    async fn has_cid(&self, cid: &Cid) -> Result<bool> {
+        Ok(self.contains_key(cid))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::{
         collections::{BTreeMap, HashMap},
-        hash::BuildHasher,
         sync::Arc,
     };
+
+    use crate::unixfs_builder::read_to_vec;
 
     use super::*;
     use cid::multihash::{Code, MultihashDigest};
     use futures::{StreamExt, TryStreamExt};
     use libipld::{codec::Encode, Ipld, IpldCodec};
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
-
-    #[async_trait]
-    impl<S: BuildHasher + Clone + Send + Sync + 'static> ContentLoader for HashMap<Cid, Bytes, S> {
-        async fn load_cid(&self, cid: &Cid, _ctx: &LoaderContext) -> Result<LoadedCid> {
-            match self.get(cid) {
-                Some(b) => Ok(LoadedCid {
-                    data: b.clone(),
-                    source: Source::Bitswap,
-                }),
-                None => bail!("not found"),
-            }
-        }
-
-        async fn stop_session(&self, _ctx: ContextId) -> Result<()> {
-            // no session tracking
-            Ok(())
-        }
-
-        async fn has_cid(&self, cid: &Cid) -> Result<bool> {
-            Ok(self.contains_key(cid))
-        }
-    }
+    use tokio::io::AsyncSeekExt;
 
     async fn load_fixture(p: &str) -> Bytes {
         Bytes::from(tokio::fs::read(format!("./fixtures/{p}")).await.unwrap())
     }
 
-    async fn read_to_vec<T: AsyncRead + Unpin>(mut reader: T) -> Vec<u8> {
-        let mut out = Vec::new();
-        reader.read_to_end(&mut out).await.unwrap();
-        out
-    }
     async fn read_to_string<T: AsyncRead + Unpin>(reader: T) -> String {
-        String::from_utf8(read_to_vec(reader).await).unwrap()
+        String::from_utf8(read_to_vec(reader).await.unwrap()).unwrap()
     }
 
     async fn seek_and_clip<T: ContentLoader + Unpin>(
@@ -1476,7 +1451,8 @@ mod tests {
                         )
                         .unwrap(),
                 )
-                .await;
+                .await
+                .unwrap();
                 let out_ipld: Ipld = codec.decode(&out_bytes).unwrap();
                 assert_eq!(out_ipld, Ipld::String("Foo".to_string()));
 
@@ -1508,7 +1484,8 @@ mod tests {
                         )
                         .unwrap(),
                 )
-                .await;
+                .await
+                .unwrap();
                 let out_ipld: Ipld = codec.decode(&out_bytes).unwrap();
                 assert_eq!(out_ipld, Ipld::Integer(1));
 
@@ -2509,30 +2486,6 @@ mod tests {
                 panic!("invalid result: {:?}", ipld_bar_txt);
             }
         }
-    }
-
-    #[tokio::test]
-    async fn test_resolve_txt_record() {
-        let result = resolve_txt_record("_dnslink.ipfs.io.").await.unwrap();
-        assert!(!result.is_empty());
-        assert_eq!(result[0], "dnslink=/ipns/website.ipfs.io");
-
-        let result = resolve_txt_record("_dnslink.website.ipfs.io.")
-            .await
-            .unwrap();
-        assert!(!result.is_empty());
-        assert!(&result[0].starts_with("dnslink=/ipfs"));
-    }
-
-    #[tokio::test]
-    async fn test_resolve_dnslink() {
-        let result = resolve_dnslink("ipfs.io").await.unwrap();
-        assert!(!result.is_empty());
-        assert_eq!(result[0], "/ipns/website.ipfs.io".parse().unwrap());
-
-        let result = resolve_dnslink("website.ipfs.io").await.unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].typ(), PathType::Ipfs);
     }
 
     #[tokio::test]

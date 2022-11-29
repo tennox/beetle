@@ -61,7 +61,7 @@
 //! [CBOR]: https://github.com/enarx/ciborium
 //! [YAML]: https://github.com/dtolnay/serde-yaml
 //! [MessagePack]: https://github.com/3Hren/msgpack-rust
-//! [TOML]: https://github.com/alexcrichton/toml-rs
+//! [TOML]: https://docs.rs/toml
 //! [Pickle]: https://github.com/birkenfeld/serde-pickle
 //! [RON]: https://github.com/ron-rs/ron
 //! [BSON]: https://github.com/mongodb/bson-rust
@@ -81,7 +81,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 // Serde types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/serde/1.0.147")]
+#![doc(html_root_url = "https://docs.rs/serde/1.0.148")]
 // Support using Serde without the standard library!
 #![cfg_attr(not(feature = "std"), no_std)]
 // Unstable functionality only if the user asks for it. For tracking and
@@ -118,7 +118,6 @@
         derive_partial_eq_without_eq,
         enum_glob_use,
         explicit_auto_deref,
-        let_underscore_drop,
         map_err_ignore,
         new_without_default,
         result_unit_err,

@@ -13,13 +13,14 @@
 edition = "2021"
 rust-version = "1.56.1"
 name = "uint"
-version = "0.9.4"
+version = "0.9.5"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Large fixed-size integer arithmetic"
 homepage = "http://parity.io"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/paritytech/parity-common"
+resolver = "1"
 
 [[example]]
 name = "modular"

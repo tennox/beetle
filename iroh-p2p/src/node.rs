@@ -18,6 +18,7 @@ use libp2p::kad::{
     self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, KademliaEvent,
     QueryId, QueryResult,
 };
+use libp2p::mdns;
 use libp2p::metrics::Recorder;
 use libp2p::multiaddr::Protocol;
 use libp2p::ping::Result as PingResult;
@@ -30,6 +31,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn};
 
 use iroh_bitswap::{BitswapEvent, Block};
+use iroh_rpc_client::Lookup;
 
 use crate::keys::{Keychain, Storage};
 use crate::providers::Providers;
@@ -127,8 +129,10 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
         let keypair = load_identity(&mut keychain).await?;
         let mut swarm = build_swarm(&libp2p_config, &keypair, rpc_client.clone()).await?;
 
-        Swarm::listen_on(&mut swarm, libp2p_config.listening_multiaddr.clone()).unwrap();
-        println!("{}", libp2p_config.listening_multiaddr);
+        for addr in &libp2p_config.listening_multiaddrs {
+            Swarm::listen_on(&mut swarm, addr.clone())?;
+            println!("{}", addr);
+        }
 
         Ok(Node {
             swarm,
@@ -152,11 +156,7 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
     pub async fn run(&mut self) -> anyhow::Result<()> {
         info!("Local Peer ID: {}", self.swarm.local_peer_id());
 
-        let mut nice_interval = if self.use_dht {
-            Some(tokio::time::interval(NICE_INTERVAL))
-        } else {
-            None
-        };
+        let mut nice_interval = self.use_dht.then(|| tokio::time::interval(NICE_INTERVAL));
         let mut bootstrap_interval = tokio::time::interval(BOOTSTRAP_INTERVAL);
         let mut expiry_interval = tokio::time::interval(EXPIRY_INTERVAL);
 
@@ -492,27 +492,35 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                 } = e
                 {
                     match result {
-                        QueryResult::GetProviders(Ok(GetProvidersOk {
-                            key, providers, ..
-                        })) => {
-                            let swarm = self.swarm.behaviour_mut();
-                            if let Some(kad) = swarm.kad.as_mut() {
-                                debug!("provider results for {:?} last: {}", key, step.last);
+                        QueryResult::GetProviders(Ok(p)) => {
+                            match p {
+                                GetProvidersOk::FoundProviders { key, providers } => {
+                                    let swarm = self.swarm.behaviour_mut();
+                                    if let Some(kad) = swarm.kad.as_mut() {
+                                        debug!(
+                                            "provider results for {:?} last: {}",
+                                            key, step.last
+                                        );
 
-                                // filter out bad providers.
-                                let providers: HashSet<_> = providers
-                                    .into_iter()
-                                    .filter(|provider| {
-                                        let is_bad = swarm.peer_manager.is_bad_peer(provider);
-                                        if is_bad {
-                                            inc!(P2PMetrics::SkippedPeerKad);
-                                        }
-                                        !is_bad
-                                    })
-                                    .collect();
+                                        // Filter out bad providers.
+                                        let providers: HashSet<_> = providers
+                                            .into_iter()
+                                            .filter(|provider| {
+                                                let is_bad =
+                                                    swarm.peer_manager.is_bad_peer(provider);
+                                                if is_bad {
+                                                    inc!(P2PMetrics::SkippedPeerKad);
+                                                }
+                                                !is_bad
+                                            })
+                                            .collect();
 
-                                self.providers
-                                    .handle_get_providers_ok(id, step.last, key, providers, kad);
+                                        self.providers.handle_get_providers_ok(
+                                            id, step.last, key, providers, kad,
+                                        );
+                                    }
+                                }
+                                GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {}
                             }
                         }
                         QueryResult::GetProviders(Err(error)) => {
@@ -670,6 +678,25 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                     ));
                 }
             }
+            Event::Mdns(e) => match e {
+                mdns::Event::Discovered(peers) => {
+                    for (peer_id, addr) in peers {
+                        let is_connected = self.swarm.is_connected(&peer_id);
+                        debug!(
+                            "mdns: discovered {} at {} (connected: {:?})",
+                            peer_id, addr, is_connected
+                        );
+                        if !is_connected {
+                            let dial_opts =
+                                DialOpts::peer_id(peer_id).addresses(vec![addr]).build();
+                            if let Err(e) = Swarm::dial(&mut self.swarm, dial_opts) {
+                                warn!("invalid dial options: {:?}", e);
+                            }
+                        }
+                    }
+                }
+                mdns::Event::Expired(_) => {}
+            },
             _ => {
                 // TODO: check all important events are handled
             }
@@ -937,6 +964,29 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                     response_channel.send(None).ok();
                 }
             }
+            RpcMessage::LookupLocalPeerInfo(response_channel) => {
+                let peer_id = self.swarm.local_peer_id();
+                let listen_addrs = self.swarm.listeners().cloned().collect();
+                let observed_addrs = self
+                    .swarm
+                    .external_addresses()
+                    .map(|a| a.addr.clone())
+                    .collect();
+                let protocol_version = String::from(crate::behaviour::PROTOCOL_VERSION);
+                let agent_version = String::from(crate::behaviour::AGENT_VERSION);
+                let protocols = self.swarm.behaviour().peer_manager.supported_protocols();
+
+                response_channel
+                    .send(Lookup {
+                        peer_id: *peer_id,
+                        listen_addrs,
+                        observed_addrs,
+                        agent_version,
+                        protocol_version,
+                        protocols,
+                    })
+                    .ok();
+            }
             RpcMessage::CancelListenForIdentify(response_channel, peer_id) => {
                 self.lookup_queries.remove(&peer_id);
                 response_channel.send(()).ok();
@@ -1062,7 +1112,7 @@ mod tests {
     struct TestRunnerBuilder {
         /// An Optional listening address for this node
         /// When `None`, the swarm will connect to a random tcp port.
-        addr: Option<Multiaddr>,
+        addrs: Option<Vec<Multiaddr>>,
         /// The listening addresses for the p2p client.
         /// When `None`, the client will communicate over a memory rpc channel
         rpc_addrs: Option<(P2pServerAddr, P2pClientAddr)>,
@@ -1079,7 +1129,7 @@ mod tests {
     impl TestRunnerBuilder {
         fn new() -> Self {
             Self {
-                addr: None,
+                addrs: None,
                 rpc_addrs: None,
                 bootstrap: true,
                 seed: None,
@@ -1087,8 +1137,8 @@ mod tests {
             }
         }
 
-        fn with_addr(mut self, addr: Multiaddr) -> Self {
-            self.addr = Some(addr);
+        fn with_addrs(mut self, addrs: Vec<Multiaddr>) -> Self {
+            self.addrs = Some(addrs);
             self
         }
 
@@ -1124,10 +1174,11 @@ mod tests {
             };
             let mut network_config = Config::default_with_rpc(rpc_client_addr.clone());
 
-            if let Some(addr) = self.addr {
-                network_config.libp2p.listening_multiaddr = addr;
+            if let Some(addr) = self.addrs {
+                network_config.libp2p.listening_multiaddrs = addr;
             } else {
-                network_config.libp2p.listening_multiaddr = "/ip4/0.0.0.0/tcp/0".parse().unwrap();
+                network_config.libp2p.listening_multiaddrs =
+                    vec!["/ip4/0.0.0.0/tcp/0".parse().unwrap()];
             }
 
             if !self.bootstrap {
@@ -1231,7 +1282,7 @@ mod tests {
         rpc_client_addr: P2pClientAddr,
     ) -> Result<()> {
         let test_runner = TestRunnerBuilder::new()
-            .with_addr(addr)
+            .with_addrs(vec![addr])
             .with_rpc_addrs(rpc_server_addr, rpc_client_addr)
             .build()
             .await?;
@@ -1296,6 +1347,12 @@ mod tests {
         let peer_id_b = test_runner_b.client.local_peer_id().await?;
         assert_eq!(test_runner_b.peer_id, peer_id_b);
 
+        let lookup_a = test_runner_a.client.lookup_local().await?;
+        // since we aren't connected to any other nodes, we should not
+        // have any information about our observed addresses
+        assert!(lookup_a.observed_addrs.is_empty());
+        assert_lookup(lookup_a, test_runner_a.peer_id, &test_runner_a.addr)?;
+
         // connect
         test_runner_a.client.connect(peer_id_b, addrs_b).await?;
         // Make sure we have exchanged identity information
@@ -1307,8 +1364,7 @@ mod tests {
 
         // lookup
         let lookup_b = test_runner_a.client.lookup(peer_id_b, None).await?;
-        assert_eq!(peer_id_b, lookup_b.peer_id);
-
+        assert_lookup(lookup_b, test_runner_b.peer_id, &test_runner_b.addr)?;
         // now that we are connected & have exchanged identity information,
         // we should now be able to view the node's external addrs
         // these are the addresses that other nodes tell you "this is the address I see for you"
@@ -1320,6 +1376,40 @@ mod tests {
         // let peers = test_runner_a.client.get_peers().await?;
         // assert!(peers.len() == 0);
 
+        Ok(())
+    }
+
+    // assert_lookup ensures each part of the lookup is equal
+    fn assert_lookup(
+        got: Lookup,
+        expected_peer_id: PeerId,
+        expected_addr: &Multiaddr,
+    ) -> Result<()> {
+        let expected_protocols = vec![
+            "/ipfs/ping/1.0.0",
+            "/ipfs/id/1.0.0",
+            "/ipfs/id/push/1.0.0",
+            "/ipfs/bitswap/1.2.0",
+            "/ipfs/bitswap/1.1.0",
+            "/ipfs/bitswap/1.0.0",
+            "/ipfs/bitswap",
+            "/ipfs/kad/1.0.0",
+            "/libp2p/autonat/1.0.0",
+            "/libp2p/circuit/relay/0.2.0/hop",
+            "/libp2p/circuit/relay/0.2.0/stop",
+            "/libp2p/dcutr",
+            "/meshsub/1.1.0",
+            "/meshsub/1.0.0",
+        ];
+        let expected_protocol_version = "ipfs/0.1.0";
+        let expected_agent_version =
+            format!("iroh/{}", std::env::var("CARGO_PKG_VERSION").unwrap());
+
+        assert_eq!(expected_peer_id, got.peer_id);
+        assert!(got.listen_addrs.contains(expected_addr));
+        assert_eq!(expected_protocols, got.protocols);
+        assert_eq!(expected_protocol_version, got.protocol_version);
+        assert_eq!(expected_agent_version, got.agent_version);
         Ok(())
     }
 

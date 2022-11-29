@@ -408,7 +408,7 @@ pub trait ProcessExt: Debug {
     /// let mut s = System::new_all();
     ///
     /// if let Some(process) = s.process(Pid::from(1337)) {
-    ///     eprintln!("Group id for process 1337: {:?}", process.group_id());
+    ///     eprintln!("Group ID for process 1337: {:?}", process.group_id());
     /// }
     /// ```
     fn group_id(&self) -> Option<Gid>;
@@ -427,6 +427,21 @@ pub trait ProcessExt: Debug {
     /// }
     /// ```
     fn wait(&self);
+
+    /// Returns the session ID for the current process or `None` if it couldn't be retrieved.
+    ///
+    /// ⚠️ This information is computed every time this method is called.
+    ///
+    /// ```no_run
+    /// use sysinfo::{Pid, ProcessExt, System, SystemExt};
+    ///
+    /// let mut s = System::new_all();
+    ///
+    /// if let Some(process) = s.process(Pid::from(1337)) {
+    ///     eprintln!("Session ID for process 1337: {:?}", process.session_id());
+    /// }
+    /// ```
+    fn session_id(&self) -> Option<Pid>;
 }
 
 /// Contains all the methods of the [`Cpu`][crate::Cpu] struct.
@@ -800,6 +815,16 @@ pub trait SystemExt: Sized + Debug + Default + Send + Sync {
     }
 
     /// The disk list will be emptied then completely recomputed.
+    ///
+    /// ## Linux
+    ///
+    /// ⚠️ On linux, the [NFS](https://en.wikipedia.org/wiki/Network_File_System) file
+    /// systems are ignored and the information of a mounted NFS **cannot** be obtained
+    /// via [`SystemExt::refresh_disks_list`]. This is due to the fact that I/O function
+    /// `statvfs` used by [`SystemExt::refresh_disks_list`] is blocking and
+    /// [may hang](https://github.com/GuillaumeGomez/sysinfo/pull/876) in some cases,
+    /// requiring to call `systemctl stop` to terminate the NFS service from the remote
+    /// server in some cases.
     ///
     /// ```no_run
     /// use sysinfo::{System, SystemExt};

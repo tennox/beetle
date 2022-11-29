@@ -1,8 +1,11 @@
-use super::{client, server, Attributes};
+use crate::code_gen::CodeGenBuilder;
+
+use super::Attributes;
 use proc_macro2::TokenStream;
 use prost_build::{Config, Method, Service};
 use quote::ToTokens;
 use std::{
+    collections::HashSet,
     ffi::OsString,
     io,
     path::{Path, PathBuf},
@@ -15,6 +18,7 @@ pub fn configure() -> Builder {
     Builder {
         build_client: true,
         build_server: true,
+        build_transport: true,
         file_descriptor_set_path: None,
         out_dir: None,
         extern_path: Vec::new(),
@@ -28,6 +32,7 @@ pub fn configure() -> Builder {
         protoc_args: Vec::new(),
         include_file: None,
         emit_rerun_if_changed: std::env::var_os("CARGO").is_some(),
+        disable_comments: HashSet::default(),
     }
 }
 
@@ -156,24 +161,25 @@ impl ServiceGenerator {
 impl prost_build::ServiceGenerator for ServiceGenerator {
     fn generate(&mut self, service: prost_build::Service, _buf: &mut String) {
         if self.builder.build_server {
-            let server = server::generate(
-                &service,
-                self.builder.emit_package,
-                &self.builder.proto_path,
-                self.builder.compile_well_known_types,
-                &self.builder.server_attributes,
-            );
+            let server = CodeGenBuilder::new()
+                .emit_package(self.builder.emit_package)
+                .compile_well_known_types(self.builder.compile_well_known_types)
+                .attributes(self.builder.server_attributes.clone())
+                .disable_comments(self.builder.disable_comments.clone())
+                .generate_server(&service, &self.builder.proto_path);
+
             self.servers.extend(server);
         }
 
         if self.builder.build_client {
-            let client = client::generate(
-                &service,
-                self.builder.emit_package,
-                &self.builder.proto_path,
-                self.builder.compile_well_known_types,
-                &self.builder.client_attributes,
-            );
+            let client = CodeGenBuilder::new()
+                .emit_package(self.builder.emit_package)
+                .compile_well_known_types(self.builder.compile_well_known_types)
+                .attributes(self.builder.client_attributes.clone())
+                .disable_comments(self.builder.disable_comments.clone())
+                .build_transport(self.builder.build_transport)
+                .generate_client(&service, &self.builder.proto_path);
+
             self.clients.extend(client);
         }
     }
@@ -214,6 +220,7 @@ impl prost_build::ServiceGenerator for ServiceGenerator {
 pub struct Builder {
     pub(crate) build_client: bool,
     pub(crate) build_server: bool,
+    pub(crate) build_transport: bool,
     pub(crate) file_descriptor_set_path: Option<PathBuf>,
     pub(crate) extern_path: Vec<(String, String)>,
     pub(crate) field_attributes: Vec<(String, String)>,
@@ -226,6 +233,7 @@ pub struct Builder {
     pub(crate) protoc_args: Vec<OsString>,
     pub(crate) include_file: Option<PathBuf>,
     pub(crate) emit_rerun_if_changed: bool,
+    pub(crate) disable_comments: HashSet<String>,
 
     out_dir: Option<PathBuf>,
 }
@@ -240,6 +248,15 @@ impl Builder {
     /// Enable or disable gRPC server code generation.
     pub fn build_server(mut self, enable: bool) -> Self {
         self.build_server = enable;
+        self
+    }
+
+    /// Enable or disable generated clients and servers to have built-in tonic
+    /// transport features.
+    ///
+    /// When the `transport` feature is disabled this does nothing.
+    pub fn build_transport(mut self, enable: bool) -> Self {
+        self.build_transport = enable;
         self
     }
 
@@ -339,6 +356,12 @@ impl Builder {
     /// Note: Enabling `--experimental_allow_proto3_optional` requires protobuf >= 3.12.
     pub fn protoc_arg<A: AsRef<str>>(mut self, arg: A) -> Self {
         self.protoc_args.push(arg.as_ref().into());
+        self
+    }
+
+    /// Disable service and rpc comments emission.
+    pub fn disable_comments(mut self, path: impl AsRef<str>) -> Self {
+        self.disable_comments.insert(path.as_ref().to_string());
         self
     }
 

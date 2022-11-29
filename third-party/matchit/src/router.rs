@@ -5,6 +5,7 @@ use crate::{InsertError, MatchError, Params};
 ///
 /// See [the crate documentation](crate) for details.
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug))]
 pub struct Router<T> {
     root: Node<T>,
 }
@@ -94,27 +95,6 @@ impl<T> Router<T> {
             }),
             Err(e) => Err(e),
         }
-    }
-
-    /// Performs a case-insensitive lookup of the given path,
-    /// returning the case corrected path if successful.
-    ///
-    /// Missing/extra trailing slashes are also corrected.
-    ///
-    /// ```rust
-    /// # use matchit::Router;
-    ///
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut router = Router::new();
-    /// router.insert("/home", "Welcome!")?;
-    ///
-    /// let path = router.fix_path("/HoMe/").unwrap();
-    /// assert_eq!(path, "/home");
-    /// # Ok(())
-    /// # }
-    /// ````
-    pub fn fix_path(&self, path: &str) -> Option<String> {
-        self.root.fix_path(path)
     }
 
     #[cfg(feature = "__test_helpers")]

@@ -6,7 +6,10 @@ export OSX_CROSS=/home/capyloon/dev/capyloon/osx-cross
 
 LLVM_STRIP=${HOME}/.mozbuild/clang/bin/llvm-strip
 
-FEATURES="--features=uds-gateway"
+FEATURES="--features=http-uds-gateway"
+
+rustc --version
+cargo --version
 
 cargo clean
 

@@ -6,16 +6,16 @@ gateway_uds_path = '/dev/socket/ipfsd.http'
 gateway_addr = "grpc:///dev/socket/iroh-one-rpc"
 
 [gateway]
-http_resolvers = ['dweb.link']
 cache = false
 denylist = false
 fetch = false
+http_resolvers = ['dweb.link']
 port = 0
-writeable = false
+writeable = true
 
 [gateway.headers]
 accept-ranges = 'none'
-access-control-allow-headers = 'content-type, content-disposition, last-modified, cache-control, accept-ranges, etag, service-worker, x-ipfs-gateway-prefix, x-trace-id, x-content-type-options, x-ipfs-path, x-ipfs-roots'
+access-control-allow-headers = 'location, content-type, content-disposition, last-modified, cache-control, accept-ranges, etag, service-worker, x-ipfs-gateway-prefix, x-trace-id, x-content-type-options, x-ipfs-path, x-ipfs-roots'
 access-control-allow-methods = 'GET, PUT, POST, DELETE, HEAD, OPTIONS'
 access-control-allow-origin = '*'
 

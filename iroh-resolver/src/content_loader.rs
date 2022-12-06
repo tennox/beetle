@@ -305,7 +305,9 @@ impl ContentLoader for FullLoader {
 
         match cids.last() {
             Some(root_cid) => {
-                self.client.try_p2p()?.start_providing(&root_cid).await?;
+                // This fails if Kademlia is not enabled, which can be the case
+                // and it's ok.
+                let _ = self.client.try_p2p()?.start_providing(&root_cid).await;
                 Ok(*root_cid)
             }
             None => Err(anyhow!("no root cid!")),

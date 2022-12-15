@@ -1,24 +1,31 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::config::{Config, CONFIG_FILE_NAME, ENV_PREFIX};
+use crate::IpfsPath;
 use crate::P2pApi;
-use crate::{AddEvent, IpfsPath};
 use anyhow::{ensure, Context, Result};
 use cid::Cid;
 use futures::stream::LocalBoxStream;
 use futures::{StreamExt, TryStreamExt};
-use iroh_resolver::content_loader::{FullLoader, FullLoaderConfig};
 use iroh_resolver::resolver::Resolver;
-use iroh_resolver::unixfs_builder::{self, ChunkerConfig};
 use iroh_rpc_client::Client;
 use iroh_rpc_client::StatusTable;
+use iroh_unixfs::{
+    builder::Entry as UnixfsEntry,
+    content_loader::{FullLoader, FullLoaderConfig},
+    ResponseClip,
+};
 use iroh_util::{iroh_config_path, make_config};
 #[cfg(feature = "testing")]
 use mockall::automock;
 use relative_path::RelativePathBuf;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+use crate::store::add_blocks_to_store;
+
+#[derive(Debug, Clone)]
 pub struct Api {
     client: Client,
     resolver: Resolver<FullLoader>,
@@ -28,6 +35,16 @@ pub enum OutType {
     Dir,
     Reader(Box<dyn AsyncRead + Unpin>),
     Symlink(PathBuf),
+}
+
+impl fmt::Debug for OutType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dir => write!(f, "Dir"),
+            Self::Reader(_) => write!(f, "Reader(impl AsyncRead + Unpin>)"),
+            Self::Symlink(arg0) => f.debug_tuple("Symlink").field(arg0).finish(),
+        }
+    }
 }
 
 #[cfg_attr(feature = "testing", allow(dead_code), automock)]
@@ -51,7 +68,10 @@ impl Api {
             overrides_map,
         )
         .unwrap();
+        Api::from_config(config).await
+    }
 
+    pub async fn from_config(config: Config) -> Result<Self> {
         let client = Client::new(config.rpc_client).await?;
         let content_loader = FullLoader::new(
             client.clone(),
@@ -74,6 +94,10 @@ impl Api {
         let resolver = Resolver::new(content_loader);
 
         Ok(Self { client, resolver })
+    }
+
+    pub fn from_client_and_resolver(client: Client, resolver: Resolver<FullLoader>) -> Self {
+        Self { client, resolver }
     }
 
     pub async fn provide(&self, cid: Cid) -> Result<()> {
@@ -116,13 +140,13 @@ impl Api {
                 if out.is_dir() {
                     yield (relative_path, OutType::Dir);
                 } else if out.is_symlink() {
-                    let mut reader = out.pretty(resolver.clone(), Default::default(), iroh_resolver::resolver::ResponseClip::NoClip)?;
+                    let mut reader = out.pretty(resolver.clone(), Default::default(), ResponseClip::NoClip)?;
                     let mut target = String::new();
                     reader.read_to_string(&mut target).await?;
                     let target = PathBuf::from(target);
                     yield (relative_path, OutType::Symlink(target));
                 } else {
-                    let reader = out.pretty(resolver.clone(), Default::default(), iroh_resolver::resolver::ResponseClip::NoClip)?;
+                    let reader = out.pretty(resolver.clone(), Default::default(), ResponseClip::NoClip)?;
                     yield (relative_path, OutType::Reader(Box::new(reader)));
                 }
             }
@@ -131,94 +155,43 @@ impl Api {
         Ok(stream.boxed_local())
     }
 
-    pub async fn add_file(
-        &self,
-        path: &Path,
-        wrap: bool,
-        chunker: ChunkerConfig,
-    ) -> Result<LocalBoxStream<'static, Result<AddEvent>>> {
-        let providing_client = iroh_resolver::unixfs_builder::StoreAndProvideClient {
-            client: self.client.clone(),
-        };
-        let path = path.to_path_buf();
-        let stream = unixfs_builder::add_file(
-            Some(providing_client),
-            &path,
-            iroh_resolver::unixfs_builder::Config { wrap, chunker },
-        )
-        .await?;
-
-        Ok(stream.boxed_local())
-    }
-
-    pub async fn add_dir(
-        &self,
-        path: &Path,
-        wrap: bool,
-        chunker: ChunkerConfig,
-    ) -> Result<LocalBoxStream<'static, Result<AddEvent>>> {
-        let providing_client = iroh_resolver::unixfs_builder::StoreAndProvideClient {
-            client: self.client.clone(),
-        };
-        let path = path.to_path_buf();
-        let stream = unixfs_builder::add_dir(
-            Some(providing_client),
-            &path,
-            iroh_resolver::unixfs_builder::Config { wrap, chunker },
-        )
-        .await?;
-
-        Ok(stream.boxed_local())
-    }
-
-    pub async fn add_symlink(
-        &self,
-        path: &Path,
-        wrap: bool,
-    ) -> Result<LocalBoxStream<'static, Result<AddEvent>>> {
-        let providing_client = iroh_resolver::unixfs_builder::StoreAndProvideClient {
-            client: self.client.clone(),
-        };
-        let path = path.to_path_buf();
-        let stream = unixfs_builder::add_symlink(Some(providing_client), &path, wrap).await?;
-
-        Ok(stream.boxed_local())
-    }
-
     pub async fn check(&self) -> StatusTable {
         self.client.check().await
     }
 
-    pub async fn watch(&self) -> LocalBoxStream<'static, iroh_rpc_client::StatusTable> {
+    pub async fn watch(&self) -> LocalBoxStream<'static, StatusTable> {
         self.client.clone().watch().await.boxed_local()
     }
 
+    /// The `add_stream` method encodes the entry into a DAG and adds
+    /// the resulting blocks to the store. It returns a stream of
+    /// CIDs and the size of the _raw data_ associated with that block.
+    /// If the block does not contain raw data (only link data), the
+    /// size of the block will be 0.
     pub async fn add_stream(
         &self,
-        path: &Path,
-        wrap: bool,
-        chunker: ChunkerConfig,
-    ) -> Result<LocalBoxStream<'static, Result<AddEvent>>> {
-        if path.is_dir() {
-            self.add_dir(path, wrap, chunker).await
-        } else if path.is_symlink() {
-            self.add_symlink(path, wrap).await
-        } else if path.is_file() {
-            self.add_file(path, wrap, chunker).await
-        } else {
-            anyhow::bail!("can only add files or directories")
-        }
+        entry: UnixfsEntry,
+    ) -> Result<LocalBoxStream<'static, Result<(Cid, u64)>>> {
+        let blocks = match entry {
+            UnixfsEntry::File(f) => f.encode().await?.boxed_local(),
+            UnixfsEntry::Directory(d) => d.encode(),
+            UnixfsEntry::Symlink(s) => Box::pin(async_stream::try_stream! {
+                yield s.encode()?
+            }),
+        };
+
+        Ok(Box::pin(
+            add_blocks_to_store(Some(self.client.clone()), blocks).await,
+        ))
     }
 
-    pub async fn add(&self, path: &Path, wrap: bool, chunker: ChunkerConfig) -> Result<Cid> {
-        let add_events = self.add_stream(path, wrap, chunker).await?;
+    /// The `add` method encodes the entry into a DAG and adds the resulting
+    /// blocks to the store.
+    pub async fn add(&self, entry: UnixfsEntry) -> Result<Cid> {
+        let add_events = self.add_stream(entry).await?;
 
         add_events
-            .try_fold(None, |_acc, add_event| async move {
-                match add_event {
-                    AddEvent::ProgressDelta { cid, .. } => Ok(Some(cid)),
-                }
-            })
+            .try_fold(None, |_acc, (cid, _)| async move { Ok(Some(cid)) })
             .await?
             .context("No cid found")
     }

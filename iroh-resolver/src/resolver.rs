@@ -1,100 +1,56 @@
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt::{self, Debug, Display, Formatter};
-use std::hash::BuildHasher;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
-use cid::multihash::{Code, MultihashDigest};
 use cid::Cid;
 use futures::{Future, Stream, TryStreamExt};
 use iroh_metrics::inc;
+use iroh_unixfs::{
+    codecs::Codec,
+    content_loader::{ContentLoader, ContextId, LoaderContext},
+    parse_links,
+    unixfs::{poll_read_buf_at_pos, DataType, UnixfsChildStream, UnixfsContentReader, UnixfsNode},
+    Block, Link, LoadedCid, ResponseClip, Source,
+};
 use libipld::codec::Encode;
-use libipld::error::{InvalidMultihash, UnsupportedMultihash};
 use libipld::prelude::Codec as _;
 use libipld::{Ipld, IpldCodec};
 use tokio::io::{AsyncRead, AsyncSeek};
-use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::{debug, trace, warn};
 
 use iroh_metrics::{
-    core::{MObserver, MRecorder},
-    gateway::{GatewayHistograms, GatewayMetrics},
-    observe, record,
-    resolver::ResolverMetrics,
+    core::MRecorder,
+    resolver::{OutMetrics, ResolverMetrics},
 };
 
-use crate::codecs::Codec;
-use crate::content_loader::ContentLoader;
 use crate::dns_resolver::{Config, DnsResolver};
-use crate::unixfs::{
-    poll_read_buf_at_pos, DataType, Link, UnixfsChildStream, UnixfsContentReader, UnixfsNode,
-};
 
 pub const IROH_STORE: &str = "iroh-store";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Block {
-    cid: Cid,
-    data: Bytes,
-    links: Vec<Cid>,
-}
-
-impl Block {
-    pub fn new(cid: Cid, data: Bytes, links: Vec<Cid>) -> Self {
-        Self { cid, data, links }
-    }
-
-    pub fn cid(&self) -> &Cid {
-        &self.cid
-    }
-
-    pub fn data(&self) -> &Bytes {
-        &self.data
-    }
-
-    pub fn links(&self) -> &[Cid] {
-        &self.links
-    }
-
-    pub fn raw_data_size(&self) -> Option<u64> {
-        let codec = Codec::try_from(self.cid.codec()).unwrap();
-        match codec {
-            Codec::Raw => Some(self.data.len() as u64),
-            _ => None,
+// ToDo: Remove this function
+// Related issue: https://github.com/n0-computer/iroh/issues/593
+fn from_peer_id(id: &str) -> Option<libipld::Multihash> {
+    static MAX_INLINE_KEY_LENGTH: usize = 42;
+    let multihash =
+        libp2p::multihash::Multihash::from_bytes(&bs58::decode(id).into_vec().ok()?).ok()?;
+    match libp2p::multihash::Code::try_from(multihash.code()) {
+        Ok(libp2p::multihash::Code::Sha2_256) => {
+            Some(libipld::Multihash::from_bytes(&multihash.to_bytes()).unwrap())
         }
-    }
-
-    /// Validate the block. Will return an error if the hash or the links are wrong.
-    pub fn validate(&self) -> Result<()> {
-        // check that the cid is supported
-        let code = self.cid.hash().code();
-        let mh = Code::try_from(code)
-            .map_err(|_| UnsupportedMultihash(code))?
-            .digest(&self.data);
-        // check that the hash matches the data
-        if mh.digest() != self.cid.hash().digest() {
-            return Err(InvalidMultihash(mh.to_bytes()).into());
+        Ok(libp2p::multihash::Code::Identity)
+            if multihash.digest().len() <= MAX_INLINE_KEY_LENGTH =>
+        {
+            Some(libipld::Multihash::from_bytes(&multihash.to_bytes()).unwrap())
         }
-        // check that the links are complete
-        let expected_links = parse_links(&self.cid, &self.data)?;
-        let mut actual_links = self.links.clone();
-        actual_links.sort();
-        // TODO: why do the actual links need to be deduplicated?
-        actual_links.dedup();
-        anyhow::ensure!(expected_links == actual_links, "links do not match");
-        Ok(())
-    }
-
-    pub fn into_parts(self) -> (Cid, Bytes, Vec<Cid>) {
-        (self.cid, self.data, self.links)
+        _ => None,
     }
 }
 
@@ -113,6 +69,40 @@ impl Path {
             root: CidOrDomain::Cid(cid),
             tail: Vec::new(),
         }
+    }
+
+    pub fn from_parts(
+        scheme: &str,
+        cid_or_domain: &str,
+        tail_path: &str,
+    ) -> Result<Self, anyhow::Error> {
+        let (typ, root) = if scheme.eq_ignore_ascii_case("ipns") {
+            let root = if let Ok(cid) = Cid::from_str(cid_or_domain) {
+                CidOrDomain::Cid(cid)
+            } else if let Some(multihash) = from_peer_id(cid_or_domain) {
+                CidOrDomain::Cid(Cid::new_v1(Codec::Libp2pKey.into(), multihash))
+            // ToDo: Bring back commented "else if" instead of "else if" above
+            // Related issue: https://github.com/n0-computer/iroh/issues/593
+            // } else if let Ok(peer_id) = PeerId::from_str(cid_or_domain) {
+            //    CidOrDomain::Cid(Cid::new_v1(Codec::Libp2pKey.into(), *peer_id.as_ref()))
+            } else {
+                CidOrDomain::Domain(cid_or_domain.to_string())
+            };
+            (PathType::Ipns, root)
+        } else {
+            let root = Cid::from_str(cid_or_domain).context("invalid cid")?;
+            (PathType::Ipfs, CidOrDomain::Cid(root))
+        };
+        let tail = if tail_path != "/" {
+            tail_path
+                .split(&['/', '\\'])
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect()
+        } else {
+            vec!["".to_string()]
+        };
+        Ok(Path { typ, root, tail })
     }
 
     pub fn typ(&self) -> PathType {
@@ -153,38 +143,6 @@ impl Path {
     }
 }
 
-/// Holds information if we should clip the response and to what offset
-#[derive(Debug, Clone, Copy)]
-pub enum ResponseClip {
-    NoClip,
-    Clip(usize),
-}
-
-impl From<usize> for ResponseClip {
-    fn from(item: usize) -> Self {
-        if item == 0 {
-            ResponseClip::NoClip
-        } else {
-            ResponseClip::Clip(item)
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CidOrDomain {
-    Cid(Cid),
-    Domain(String),
-}
-
-impl Display for CidOrDomain {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            CidOrDomain::Cid(c) => std::fmt::Display::fmt(&c, f),
-            CidOrDomain::Domain(s) => std::fmt::Display::fmt(&s, f),
-        }
-    }
-}
-
 impl Display for Path {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "/{}/{}", self.typ.as_str(), self.root)?;
@@ -201,6 +159,21 @@ impl Display for Path {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CidOrDomain {
+    Cid(Cid),
+    Domain(String),
+}
+
+impl Display for CidOrDomain {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            CidOrDomain::Cid(c) => Display::fmt(&c, f),
+            CidOrDomain::Domain(s) => Display::fmt(&s, f),
+        }
     }
 }
 
@@ -224,6 +197,7 @@ impl PathType {
 impl FromStr for Path {
     type Err = anyhow::Error;
 
+    // ToDo: Replace it with from_parts (or vice verse)
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut parts = s.split(&['/', '\\']).filter(|s| !s.is_empty());
 
@@ -311,7 +285,7 @@ impl OutRaw {
 #[derive(Debug, Clone)]
 pub struct Out {
     metadata: Metadata,
-    pub(crate) content: OutContent,
+    pub content: OutContent,
     context: LoaderContext,
 }
 
@@ -324,7 +298,7 @@ impl Out {
     ///
     /// Returns `true` if the underlying root is an IPNS entry.
     pub fn is_mutable(&self) -> bool {
-        matches!(self.metadata.path.typ, PathType::Ipns)
+        matches!(self.metadata.path.typ(), PathType::Ipns)
     }
 
     pub fn is_dir(&self) -> bool {
@@ -367,7 +341,9 @@ impl Out {
         om: OutMetrics,
     ) -> Result<Option<UnixfsChildStream<'a>>> {
         match &self.content {
-            OutContent::Unixfs(node) => node.as_child_reader(self.context.clone(), loader, om),
+            OutContent::Unixfs(node) => {
+                node.as_child_reader(self.context.clone(), loader.loader().clone(), om)
+            }
             _ => Ok(None),
         }
     }
@@ -407,7 +383,7 @@ impl Out {
             OutContent::Unixfs(node) => {
                 let ctx = self.context;
                 let reader = node
-                    .into_content_reader(ctx, loader, om, clip)?
+                    .into_content_reader(ctx, loader.loader().clone(), om, clip)?
                     .ok_or_else(|| anyhow!("cannot read the contents of a directory"))?;
 
                 Ok(OutPrettyReader::Unixfs(reader))
@@ -417,7 +393,7 @@ impl Out {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum OutContent {
+pub enum OutContent {
     DagPb(Ipld, Bytes),
     Unixfs(UnixfsNode),
     DagCbor(Ipld, Bytes),
@@ -484,9 +460,9 @@ pub enum UnixfsType {
     Symlink,
 }
 
-pub enum OutPrettyReader<T: ContentLoader> {
+pub enum OutPrettyReader<C: ContentLoader> {
     DagPb(BytesReader),
-    Unixfs(UnixfsContentReader<T>),
+    Unixfs(UnixfsContentReader<C>),
     DagCbor(BytesReader),
     DagJson(BytesReader),
     Raw(BytesReader),
@@ -517,6 +493,7 @@ impl<T: ContentLoader> OutPrettyReader<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct BytesReader {
     pos: usize,
     bytes: Bytes,
@@ -527,40 +504,6 @@ impl BytesReader {
     /// Returns the size in bytes, if known in advance.
     pub fn size(&self) -> Option<u64> {
         Some(self.bytes.len() as u64)
-    }
-}
-
-pub struct OutMetrics {
-    pub start: Instant,
-}
-
-impl OutMetrics {
-    pub fn observe_bytes_read(&self, pos: usize, bytes_read: usize) {
-        if pos == 0 && bytes_read > 0 {
-            record!(
-                GatewayMetrics::TimeToServeFirstBlock,
-                self.start.elapsed().as_millis() as u64
-            );
-        }
-        if bytes_read == 0 {
-            record!(
-                GatewayMetrics::TimeToServeFullFile,
-                self.start.elapsed().as_millis() as u64
-            );
-            observe!(
-                GatewayHistograms::TimeToServeFullFile,
-                self.start.elapsed().as_millis() as f64
-            );
-        }
-        record!(GatewayMetrics::BytesStreamed, bytes_read as u64);
-    }
-}
-
-impl Default for OutMetrics {
-    fn default() -> Self {
-        Self {
-            start: Instant::now(),
-        }
     }
 }
 
@@ -619,7 +562,7 @@ impl<T: ContentLoader + Unpin + 'static> AsyncSeek for OutPrettyReader<T> {
                         bytes_reader.pos = i as usize;
                     }
                     std::io::SeekFrom::Current(pos) => {
-                        let mut i = std::cmp::min(data_len as i64 - 1, pos_current as i64 + pos);
+                        let mut i = std::cmp::min(data_len as i64 - 1, pos_current + pos);
                         i = std::cmp::max(0, i);
                         bytes_reader.pos = i as usize;
                     }
@@ -644,19 +587,6 @@ impl<T: ContentLoader + Unpin + 'static> AsyncSeek for OutPrettyReader<T> {
     }
 }
 
-#[derive(Debug)]
-pub struct LoadedCid {
-    pub data: Bytes,
-    pub source: Source,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Source {
-    Bitswap,
-    Http(String),
-    Store(&'static str),
-}
-
 #[derive(Debug, Clone)]
 pub struct Resolver<T: ContentLoader> {
     pub loader: T,
@@ -664,75 +594,6 @@ pub struct Resolver<T: ContentLoader> {
     next_id: Arc<AtomicU64>,
     _worker: Arc<JoinHandle<()>>,
     session_closer: async_channel::Sender<ContextId>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoaderContext {
-    id: ContextId,
-    inner: Arc<Mutex<InnerLoaderContext>>,
-}
-
-impl LoaderContext {
-    pub fn from_path(id: ContextId, closer: async_channel::Sender<ContextId>, path: Path) -> Self {
-        trace!("new loader context: {:?}", id);
-        LoaderContext {
-            id,
-            inner: Arc::new(Mutex::new(InnerLoaderContext { path, closer })),
-        }
-    }
-
-    pub fn id(&self) -> ContextId {
-        self.id
-    }
-}
-
-impl Drop for LoaderContext {
-    fn drop(&mut self) {
-        let count = Arc::strong_count(&self.inner);
-        debug!("session {} dropping loader context {}", self.id, count);
-        if count == 1 {
-            if let Err(err) = self
-                .inner
-                .try_lock()
-                .expect("last reference, no lock")
-                .closer
-                .send_blocking(self.id)
-            {
-                warn!(
-                    "failed to send session stop for session {}: {:?}",
-                    self.id, err
-                );
-            }
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ContextId(u64);
-
-impl Display for ContextId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "ContextId({})", self.0)
-    }
-}
-
-impl From<u64> for ContextId {
-    fn from(id: u64) -> Self {
-        ContextId(id)
-    }
-}
-
-impl From<ContextId> for u64 {
-    fn from(id: ContextId) -> Self {
-        id.0
-    }
-}
-
-#[derive(Debug)]
-struct InnerLoaderContext {
-    #[allow(dead_code)]
-    path: Path,
-    closer: async_channel::Sender<ContextId>,
 }
 
 impl<T: ContentLoader> Resolver<T> {
@@ -871,8 +732,7 @@ impl<T: ContentLoader> Resolver<T> {
         M: Fn(Cid, LoaderContext) -> F + Clone,
         F: Future<Output = Result<O>> + Send + 'static,
     {
-        let mut ctx =
-            LoaderContext::from_path(self.next_id(), self.session_closer.clone(), root.clone());
+        let mut ctx = LoaderContext::from_path(self.next_id(), self.session_closer.clone());
 
         let mut cids = VecDeque::new();
         let this = self.clone();
@@ -921,8 +781,7 @@ impl<T: ContentLoader> Resolver<T> {
     /// Resolves through a given path, returning the [`Cid`] and raw bytes of the final leaf.
     #[tracing::instrument(skip(self))]
     pub async fn resolve(&self, path: Path) -> Result<Out> {
-        let ctx =
-            LoaderContext::from_path(self.next_id(), self.session_closer.clone(), path.clone());
+        let ctx = LoaderContext::from_path(self.next_id(), self.session_closer.clone());
 
         self.resolve_with_ctx(ctx, path).await
     }
@@ -973,7 +832,7 @@ impl<T: ContentLoader> Resolver<T> {
             }
             UnixfsNode::HamtShard(_, hamt) => {
                 let (next_link, next_node) = hamt
-                    .get(ctx.clone(), self, part.as_bytes())
+                    .get(ctx.clone(), self.loader().clone(), part.as_bytes())
                     .await?
                     .ok_or_else(|| anyhow!("UnixfsNode::HamtShard link '{}' not found", part))?;
                 // TODO: is this the right way to to resolved path here?
@@ -1000,7 +859,7 @@ impl<T: ContentLoader> Resolver<T> {
     ) -> Result<Out> {
         trace!("{:?} resolving {} for {}", ctx.id(), cid, root_path);
         if let Ok(node) = UnixfsNode::decode(&cid, loaded_cid.data.clone()) {
-            let tail = &root_path.tail;
+            let tail = &root_path.tail();
             let mut current = node;
             let mut resolved_path = vec![cid];
 
@@ -1053,11 +912,11 @@ impl<T: ContentLoader> Resolver<T> {
             .map_err(|e| anyhow!("invalid {:?}: {:?}", codec, e))?;
 
         let (codec, out) = self
-            .resolve_ipld_path(cid, codec, ipld, &root_path.tail, &mut ctx)
+            .resolve_ipld_path(cid, codec, ipld, root_path.tail(), &mut ctx)
             .await?;
 
         // reencode if we only return part of the original
-        let bytes = if root_path.tail.is_empty() {
+        let bytes = if root_path.tail().is_empty() {
             loaded_cid.data
         } else {
             let mut bytes = Vec::new();
@@ -1093,7 +952,7 @@ impl<T: ContentLoader> Resolver<T> {
     async fn resolve_ipld_path(
         &self,
         _cid: Cid,
-        codec: libipld::IpldCodec,
+        codec: IpldCodec,
         root: Ipld,
         path: &[String],
         ctx: &mut LoaderContext,
@@ -1102,7 +961,7 @@ impl<T: ContentLoader> Resolver<T> {
         let mut codec = codec;
 
         for part in path.iter().filter(|s| !s.is_empty()) {
-            if let libipld::Ipld::Link(c) = current {
+            if let Ipld::Link(c) = current {
                 (codec, current) = self.load_ipld_link(c, ctx).await?;
             }
             if codec == IpldCodec::DagPb {
@@ -1131,7 +990,7 @@ impl<T: ContentLoader> Resolver<T> {
 
     #[tracing::instrument(skip(self))]
     async fn load_ipld_link(&self, cid: Cid, ctx: &mut LoaderContext) -> Result<(IpldCodec, Ipld)> {
-        let codec: libipld::IpldCodec = cid.codec().try_into()?;
+        let codec: IpldCodec = cid.codec().try_into()?;
 
         // resolve link and update if we have encountered a link
         let loaded_cid = self.load_cid(&cid, ctx).await?;
@@ -1183,14 +1042,14 @@ impl<T: ContentLoader> Resolver<T> {
         const MAX_LOOKUPS: usize = 16;
 
         for _ in 0..MAX_LOOKUPS {
-            match current.typ {
-                PathType::Ipfs => match current.root {
+            match current.typ() {
+                PathType::Ipfs => match current.root() {
                     CidOrDomain::Cid(ref c) => {
                         return Ok(*c);
                     }
                     CidOrDomain::Domain(_) => bail!("invalid domain encountered"),
                 },
-                PathType::Ipns => match current.root {
+                PathType::Ipns => match current.root() {
                     CidOrDomain::Cid(ref c) => {
                         let c = self.load_ipns_record(c).await?;
                         current = Path::from_cid(c);
@@ -1232,44 +1091,36 @@ impl<T: ContentLoader> Resolver<T> {
     }
 }
 
-/// Extract links from the given content.
-///
-/// Links will be returned as a sorted vec
-pub fn parse_links(cid: &Cid, bytes: &[u8]) -> Result<Vec<Cid>> {
-    let codec = Codec::try_from(cid.codec()).context("unknown codec")?;
-    let mut cids = BTreeSet::new();
-    let codec = match codec {
-        Codec::DagCbor => IpldCodec::DagCbor,
-        Codec::DagPb => IpldCodec::DagPb,
-        Codec::DagJson => IpldCodec::DagJson,
-        Codec::Raw => IpldCodec::Raw,
-        _ => bail!("unsupported codec {:?}", codec),
-    };
-    codec.references::<Ipld, _>(bytes, &mut cids)?;
-    let links = cids.into_iter().collect();
-    Ok(links)
+/// Read an `AsyncRead` into a `Vec` completely.
+#[doc(hidden)]
+pub async fn read_to_vec<T: AsyncRead + Unpin>(mut reader: T) -> Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+
+    let mut out = Vec::new();
+    reader.read_to_end(&mut out).await?;
+    Ok(out)
 }
 
-#[async_trait]
-impl<S: BuildHasher + Clone + Send + Sync + 'static> ContentLoader for HashMap<Cid, Bytes, S> {
-    async fn load_cid(&self, cid: &Cid, _ctx: &LoaderContext) -> Result<LoadedCid> {
-        match self.get(cid) {
-            Some(b) => Ok(LoadedCid {
-                data: b.clone(),
-                source: Source::Bitswap,
-            }),
-            None => bail!("not found"),
-        }
+/// Read a stream of (cid, block) pairs into an in memory store and return the store and the root cid.
+#[doc(hidden)]
+pub async fn stream_to_resolver(
+    stream: impl Stream<Item = Result<Block>>,
+) -> Result<(Cid, Resolver<Arc<fnv::FnvHashMap<Cid, Bytes>>>)> {
+    tokio::pin!(stream);
+    let blocks: Vec<_> = stream.try_collect().await?;
+    for block in &blocks {
+        block.validate()?;
     }
-
-    async fn stop_session(&self, _ctx: ContextId) -> Result<()> {
-        // no session tracking
-        Ok(())
-    }
-
-    async fn has_cid(&self, cid: &Cid) -> Result<bool> {
-        Ok(self.contains_key(cid))
-    }
+    let root_block = blocks.last().context("no root")?.clone();
+    let store: fnv::FnvHashMap<Cid, Bytes> = blocks
+        .into_iter()
+        .map(|block| {
+            let (cid, bytes, _) = block.into_parts();
+            (cid, bytes)
+        })
+        .collect();
+    let resolver = Resolver::new(Arc::new(store));
+    Ok((*root_block.cid(), resolver))
 }
 
 #[cfg(test)]
@@ -1278,8 +1129,6 @@ mod tests {
         collections::{BTreeMap, HashMap},
         sync::Arc,
     };
-
-    use crate::unixfs_builder::read_to_vec;
 
     use super::*;
     use cid::multihash::{Code, MultihashDigest};
@@ -1305,7 +1154,7 @@ mod tests {
             .clone()
             .into_content_reader(
                 ctx,
-                resolver.clone(),
+                resolver.loader().clone(),
                 OutMetrics::default(),
                 ResponseClip::Clip(range.end as usize),
             )
@@ -1602,7 +1451,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_hello_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip,
                         )
@@ -1638,7 +1487,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_hello_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip,
                         )
@@ -1701,7 +1550,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_bar_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip,
                         )
@@ -1995,7 +1844,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_hello_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip,
                         )
@@ -2038,7 +1887,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_bar_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip
                         )
@@ -2105,7 +1954,7 @@ mod tests {
                 let content = read_to_string(
                     node.into_content_reader(
                         ipld_readme.context,
-                        resolver.clone(),
+                        resolver.loader().clone(),
                         OutMetrics::default(),
                         ResponseClip::NoClip,
                     )
@@ -2273,7 +2122,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_hello_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip
                         )
@@ -2330,7 +2179,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_bar_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip
                         )
@@ -2368,7 +2217,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_bar_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip
                         )
@@ -2406,7 +2255,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_bar_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip,
                         )
@@ -2444,7 +2293,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_bar_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip
                         )
@@ -2472,7 +2321,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_bar_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip
                         )
@@ -2538,7 +2387,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip
                         )
@@ -2609,7 +2458,7 @@ mod tests {
                     read_to_string(
                         node.into_content_reader(
                             ipld_txt.context,
-                            resolver.clone(),
+                            resolver.loader().clone(),
                             OutMetrics::default(),
                             ResponseClip::NoClip
                         )

@@ -11,13 +11,13 @@
 
 [package]
 edition = "2018"
-rust-version = "1.51"
+rust-version = "1.56"
 name = "tower-http"
-version = "0.3.4"
+version = "0.3.5"
 authors = ["Tower Maintainers <team@tower-rs.com>"]
 description = "Tower middleware and utilities for HTTP clients and servers"
 homepage = "https://github.com/tower-rs/tower-http"
-readme = "../README.md"
+readme = "README.md"
 keywords = [
     "io",
     "async",
@@ -251,6 +251,7 @@ full = [
     "map-request-body",
     "map-response-body",
     "metrics",
+    "normalize-path",
     "propagate-header",
     "redirect",
     "request-id",
@@ -260,11 +261,13 @@ full = [
     "timeout",
     "trace",
     "util",
+    "validate-request",
 ]
 limit = []
 map-request-body = []
 map-response-body = []
 metrics = ["tokio/time"]
+normalize-path = []
 propagate-header = []
 redirect = []
 request-id = ["uuid"]
@@ -274,3 +277,4 @@ set-status = []
 timeout = ["tokio/time"]
 trace = ["tracing"]
 util = ["tower"]
+validate-request = ["mime"]

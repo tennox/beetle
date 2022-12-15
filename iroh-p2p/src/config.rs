@@ -1,13 +1,10 @@
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use config::{ConfigError, Map, Source, Value};
 use iroh_metrics::config::Config as MetricsConfig;
 use iroh_rpc_client::Config as RpcClientConfig;
-use iroh_rpc_types::{
-    p2p::{P2pClientAddr, P2pServerAddr},
-    Addr,
-};
+use iroh_rpc_types::p2p::P2pAddr;
 use iroh_util::{insert_into_config_map, iroh_data_root};
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -21,7 +18,7 @@ pub const ENV_PREFIX: &str = "IROH_P2P";
 
 /// Default bootstrap nodes
 ///
-/// Based on https://github.com/ipfs/go-ipfs-config/blob/master/bootstrap_peers.go#L17.
+/// Based on <https://github.com/ipfs/go-ipfs-config/blob/master/bootstrap_peers.go#L17>.
 pub const DEFAULT_BOOTSTRAP: &[&str] = &[
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
@@ -188,7 +185,7 @@ impl Default for Libp2pConfig {
 }
 
 impl Config {
-    pub fn default_with_rpc(client_addr: P2pClientAddr) -> Self {
+    pub fn default_with_rpc(client_addr: P2pAddr) -> Self {
         Self {
             libp2p: Libp2pConfig::default(),
             rpc_client: RpcClientConfig {
@@ -200,8 +197,8 @@ impl Config {
         }
     }
 
-    pub fn default_grpc() -> Self {
-        let rpc_client = RpcClientConfig::default_grpc();
+    pub fn default_network() -> Self {
+        let rpc_client = RpcClientConfig::default_network();
 
         Self {
             libp2p: Libp2pConfig::default(),
@@ -211,24 +208,8 @@ impl Config {
         }
     }
 
-    /// Derive server addr for non memory addrs.
-    pub fn server_rpc_addr(&self) -> Result<Option<P2pServerAddr>> {
-        self.rpc_client
-            .p2p_addr
-            .as_ref()
-            .map(|addr| {
-                #[allow(unreachable_patterns)]
-                match addr {
-                    #[cfg(feature = "rpc-grpc")]
-                    Addr::GrpcHttp2(addr) => Ok(Addr::GrpcHttp2(*addr)),
-                    #[cfg(all(feature = "rpc-grpc", unix))]
-                    Addr::GrpcUds(path) => Ok(Addr::GrpcUds(path.clone())),
-                    #[cfg(feature = "rpc-mem")]
-                    Addr::Mem(_) => bail!("can not derive rpc_addr for mem addr"),
-                    _ => bail!("invalid rpc_addr"),
-                }
-            })
-            .transpose()
+    pub fn rpc_addr(&self) -> Option<P2pAddr> {
+        self.rpc_client.p2p_addr.clone()
     }
 }
 
@@ -239,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_collect() {
-        let default = Config::default_grpc();
+        let default = Config::default_network();
         let bootstrap_peers: Vec<String> = default
             .libp2p
             .bootstrap_peers
@@ -356,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_build_config_from_struct() {
-        let expect = Config::default_grpc();
+        let expect = Config::default_network();
         let got: Config = ConfigBuilder::builder()
             .add_source(expect.clone())
             .build()

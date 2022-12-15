@@ -8,8 +8,6 @@ pub mod core;
 pub mod gateway;
 #[cfg(feature = "p2p")]
 pub mod p2p;
-#[cfg(feature = "rpc-grpc")]
-pub mod req;
 #[cfg(feature = "resolver")]
 pub mod resolver;
 #[cfg(feature = "store")]
@@ -44,6 +42,7 @@ use tracing::log::{debug, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
+#[derive(Debug)]
 pub struct MetricsHandle {
     metrics_task: Option<JoinHandle<()>>,
 }
@@ -160,7 +159,7 @@ pub fn get_current_trace_id() -> TraceId {
         .trace_id()
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Collector {
     #[cfg(feature = "gateway")]
     Gateway,

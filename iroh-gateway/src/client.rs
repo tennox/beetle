@@ -12,28 +12,25 @@ use iroh_metrics::{
     core::{MObserver, MRecorder},
     gateway::{GatewayHistograms, GatewayMetrics},
     observe, record,
+    resolver::OutMetrics,
 };
 use iroh_resolver::dns_resolver::Config;
-use iroh_resolver::{
-    content_loader::ContentLoader,
-    resolver::{
-        CidOrDomain, Metadata, Out, OutMetrics, OutPrettyReader, OutType, Resolver, ResponseClip,
-        Source,
-    },
-};
+use iroh_resolver::resolver::{CidOrDomain, Metadata, Out, OutPrettyReader, OutType, Resolver};
+use iroh_unixfs::{content_loader::ContentLoader, ResponseClip, Source};
 use mime::Mime;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWrite};
 use tokio_util::io::ReaderStream;
 use tracing::{info, warn};
 
 use crate::response::ResponseFormat;
-use crate::{constants::RECURSION_LIMIT, handlers::GetParams};
+use crate::{constants::RECURSION_LIMIT, handler_params::GetParams};
 
 #[derive(Debug, Clone)]
 pub struct Client<T: ContentLoader> {
     pub(crate) resolver: Resolver<T>,
 }
 
+#[derive(Debug)]
 pub struct PrettyStreamBody<T: ContentLoader>(
     ReaderStream<tokio::io::BufReader<OutPrettyReader<T>>>,
     Option<u64>,
@@ -41,6 +38,7 @@ pub struct PrettyStreamBody<T: ContentLoader>(
 );
 
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 pub enum FileResult<T: ContentLoader> {
     File(PrettyStreamBody<T>),
     Directory(Out),
@@ -233,13 +231,24 @@ impl<T: ContentLoader> Client<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Request {
+pub struct IpfsRequest {
     pub format: ResponseFormat,
     pub cid: CidOrDomain,
     pub resolved_path: iroh_resolver::resolver::Path,
     pub query_file_name: String,
     pub download: bool,
     pub query_params: GetParams,
+    pub subdomain_mode: bool,
+}
+
+impl IpfsRequest {
+    pub fn request_path_for_redirection(&self) -> String {
+        if self.subdomain_mode {
+            self.resolved_path.to_relative_string()
+        } else {
+            self.resolved_path.to_string()
+        }
+    }
 }
 
 async fn fetch_car_recursive<T, W>(

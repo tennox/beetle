@@ -365,7 +365,6 @@ impl Unit {
             &mut unit_refs,
             self,
             &mut offsets,
-            abbrevs,
             line_program,
             line_strings,
             strings,
@@ -605,7 +604,6 @@ impl DebuggingInformationEntry {
     }
 
     /// Write the entry to the given sections.
-    #[allow(clippy::too_many_arguments)]
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
@@ -613,7 +611,6 @@ impl DebuggingInformationEntry {
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         unit: &Unit,
         offsets: &mut UnitOffsets,
-        abbrevs: &mut AbbreviationTable,
         line_program: Option<DebugLineOffset>,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
@@ -654,7 +651,6 @@ impl DebuggingInformationEntry {
                     unit_refs,
                     unit,
                     offsets,
-                    abbrevs,
                     line_program,
                     line_strings,
                     strings,
@@ -1128,7 +1124,6 @@ impl AttributeValue {
     }
 
     /// Write the attribute value to the given sections.
-    #[allow(clippy::cyclomatic_complexity, clippy::too_many_arguments)]
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
@@ -1155,7 +1150,7 @@ impl AttributeValue {
             AttributeValue::Block(ref val) => {
                 debug_assert_form!(constants::DW_FORM_block);
                 w.write_uleb128(val.len() as u64)?;
-                w.write(&val)?;
+                w.write(val)?;
             }
             AttributeValue::Data1(val) => {
                 debug_assert_form!(constants::DW_FORM_data1);
@@ -1308,7 +1303,7 @@ impl AttributeValue {
             }
             AttributeValue::String(ref val) => {
                 debug_assert_form!(constants::DW_FORM_string);
-                w.write(&val)?;
+                w.write(val)?;
                 w.write_u8(0)?;
             }
             AttributeValue::Encoding(val) => {
@@ -1558,7 +1553,6 @@ pub(crate) mod convert {
         /// Create a unit by reading the data in the input sections.
         ///
         /// Does not add entry attributes.
-        #[allow(clippy::too_many_arguments)]
         pub(crate) fn convert_entries<R: Reader<Offset = usize>>(
             from_header: read::UnitHeader<R>,
             unit_id: UnitId,
@@ -1931,9 +1925,9 @@ mod tests {
     use crate::LittleEndian;
     use std::collections::HashMap;
     use std::mem;
+    use std::sync::Arc;
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
     fn test_unit_table() {
         let mut strings = StringTable::default();
 
@@ -2542,7 +2536,7 @@ mod tests {
 
                         let unit = read::Unit {
                             header: from_unit,
-                            abbreviations: read::Abbreviations::default(),
+                            abbreviations: Arc::new(read::Abbreviations::default()),
                             name: None,
                             comp_dir: None,
                             low_pc: 0,
@@ -2578,7 +2572,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
     fn test_unit_ref() {
         let mut units = UnitTable::default();
         let unit_id1 = units.add(Unit::new(
@@ -3015,7 +3008,7 @@ mod tests {
 
                         let unit = read::Unit {
                             header: from_unit,
-                            abbreviations: read::Abbreviations::default(),
+                            abbreviations: Arc::new(read::Abbreviations::default()),
                             name: None,
                             comp_dir: None,
                             low_pc: 0,

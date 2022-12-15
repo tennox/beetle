@@ -4,13 +4,13 @@ use anyhow::{ensure, Result};
 use async_trait::async_trait;
 use cid::Cid;
 use iroh_p2p::{config, Keychain, MemoryStorage, NetworkEvent, Node};
-use iroh_resolver::{
-    content_loader::ContentLoader,
-    parse_links,
-    resolver::{ContextId, LoadedCid, LoaderContext, Resolver, Source, IROH_STORE},
-};
+use iroh_resolver::resolver::Resolver;
 use iroh_rpc_client::Client;
 use iroh_rpc_types::Addr;
+use iroh_unixfs::{
+    content_loader::{ContentLoader, ContextId, LoaderContext, IROH_STORE},
+    parse_links, LoadedCid, Source,
+};
 use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Receiver;
@@ -35,6 +35,7 @@ impl Ticket {
     }
 }
 
+#[derive(Debug)]
 pub struct P2pNode {
     p2p_task: JoinHandle<()>,
     store_task: JoinHandle<()>,
@@ -130,8 +131,10 @@ impl ContentLoader for Loader {
 
 impl P2pNode {
     pub async fn new(port: u16, db_path: &Path) -> Result<(Self, Receiver<NetworkEvent>)> {
-        let (rpc_p2p_addr_server, rpc_p2p_addr_client) = Addr::new_mem();
-        let (rpc_store_addr_server, rpc_store_addr_client) = Addr::new_mem();
+        let rpc_p2p_addr_server = Addr::new_mem();
+        let rpc_p2p_addr_client = rpc_p2p_addr_server.clone();
+        let rpc_store_addr_server = Addr::new_mem();
+        let rpc_store_addr_client = rpc_store_addr_server.clone();
 
         let rpc_store_client_config = iroh_rpc_client::Config {
             p2p_addr: Some(rpc_p2p_addr_client.clone()),

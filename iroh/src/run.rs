@@ -7,7 +7,9 @@ use console::style;
 use crossterm::style::Stylize;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
-use iroh_api::{AddEvent, Api, ChunkerConfig, IpfsPath, ServiceStatus, DEFAULT_CHUNKS_SIZE};
+use iroh_api::{
+    Api, ChunkerConfig, IpfsPath, ServiceStatus, UnixfsConfig, UnixfsEntry, DEFAULT_CHUNKS_SIZE,
+};
 use iroh_metrics::config::Config as MetricsConfig;
 use iroh_util::{human, iroh_config_path, make_config};
 
@@ -200,7 +202,7 @@ async fn add(
     // path of least confusion
     let svc_status = require_services(api, BTreeSet::from(["store"])).await?;
     match (provide, svc_status.p2p.status()) {
-        (true, ServiceStatus::Down(_status)) => {
+        (true, ServiceStatus::Down) => {
             anyhow::bail!("Add provides content to the IPFS network by default, but the p2p service is not running.\n{}",
             "hint: try using the --offline flag, or run 'iroh start p2p'".yellow()
             )
@@ -255,17 +257,20 @@ async fn add(
     // a while before it starts ending progress reports
     pb.inc(0);
 
-    let mut progress = api.add_stream(path, !no_wrap, chunker).await?;
+    let entry = UnixfsEntry::from_path(
+        path,
+        UnixfsConfig {
+            wrap: !no_wrap,
+            chunker: Some(chunker),
+        },
+    )
+    .await?;
+    let mut progress = api.add_stream(entry).await?;
     let mut cids = Vec::new();
-    while let Some(add_event) = progress.next().await {
-        match add_event? {
-            AddEvent::ProgressDelta { cid, size } => {
-                cids.push(cid);
-                if let Some(size) = size {
-                    pb.inc(size);
-                }
-            }
-        }
+    while let Some(prog) = progress.next().await {
+        let (cid, size) = prog?;
+        cids.push(cid);
+        pb.inc(size);
     }
     pb.finish_and_clear();
 

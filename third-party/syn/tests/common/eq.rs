@@ -69,7 +69,6 @@ use rustc_ast::ast::Item;
 use rustc_ast::ast::ItemKind;
 use rustc_ast::ast::Label;
 use rustc_ast::ast::Lifetime;
-use rustc_ast::ast::Lit;
 use rustc_ast::ast::LitFloatType;
 use rustc_ast::ast::LitIntType;
 use rustc_ast::ast::LitKind;
@@ -80,6 +79,7 @@ use rustc_ast::ast::MacCallStmt;
 use rustc_ast::ast::MacDelimiter;
 use rustc_ast::ast::MacStmtStyle;
 use rustc_ast::ast::MacroDef;
+use rustc_ast::ast::MetaItemLit;
 use rustc_ast::ast::MethodCall;
 use rustc_ast::ast::ModKind;
 use rustc_ast::ast::ModSpans;
@@ -131,7 +131,7 @@ use rustc_ast::ast::WhereEqPredicate;
 use rustc_ast::ast::WherePredicate;
 use rustc_ast::ast::WhereRegionPredicate;
 use rustc_ast::ptr::P;
-use rustc_ast::token::{self, CommentKind, Delimiter, Nonterminal, Token, TokenKind};
+use rustc_ast::token::{self, CommentKind, Delimiter, Lit, Nonterminal, Token, TokenKind};
 use rustc_ast::tokenstream::{
     AttrTokenStream, AttrTokenTree, AttributesData, DelimSpan, LazyAttrTokenStream, Spacing,
     TokenStream, TokenTree,
@@ -434,11 +434,12 @@ spanless_eq_struct!(InlineAsmSym; id qself path);
 spanless_eq_struct!(Item<K>; attrs id span vis ident kind !tokens);
 spanless_eq_struct!(Label; ident);
 spanless_eq_struct!(Lifetime; id ident);
-spanless_eq_struct!(Lit; token_lit kind span);
+spanless_eq_struct!(Lit; kind symbol suffix);
 spanless_eq_struct!(Local; pat ty kind id span attrs !tokens);
 spanless_eq_struct!(MacCall; path args prior_type_ascription);
 spanless_eq_struct!(MacCallStmt; mac style attrs tokens);
 spanless_eq_struct!(MacroDef; body macro_rules);
+spanless_eq_struct!(MetaItemLit; token_lit kind span);
 spanless_eq_struct!(MethodCall; seg receiver args !span);
 spanless_eq_struct!(ModSpans; !inner_span !inject_use_span);
 spanless_eq_struct!(MutTy; ty mutbl);
@@ -466,7 +467,6 @@ spanless_eq_struct!(WhereBoundPredicate; span bound_generic_params bounded_ty bo
 spanless_eq_struct!(WhereClause; has_where_token predicates span);
 spanless_eq_struct!(WhereEqPredicate; span lhs_ty rhs_ty);
 spanless_eq_struct!(WhereRegionPredicate; span lifetime bounds);
-spanless_eq_struct!(token::Lit; kind symbol suffix);
 spanless_eq_enum!(AngleBracketedArg; Arg(0) Constraint(0));
 spanless_eq_enum!(AssocItemKind; Const(0 1 2) Fn(0) Type(0) MacCall(0));
 spanless_eq_enum!(AssocConstraintKind; Equality(term) Bound(bounds));
@@ -703,8 +703,8 @@ fn is_escaped_literal_token(token: &Token, unescaped: Symbol) -> bool {
         Token {
             kind: TokenKind::Literal(lit),
             span: _,
-        } => match Lit::from_token_lit(*lit, DUMMY_SP) {
-            Ok(lit) => is_escaped_literal_ast_lit(&lit, unescaped),
+        } => match MetaItemLit::from_token_lit(*lit, DUMMY_SP) {
+            Ok(lit) => is_escaped_literal_meta_item_lit(&lit, unescaped),
             Err(_) => false,
         },
         Token {
@@ -712,7 +712,7 @@ fn is_escaped_literal_token(token: &Token, unescaped: Symbol) -> bool {
             span: _,
         } => match nonterminal.as_ref() {
             Nonterminal::NtExpr(expr) => match &expr.kind {
-                ExprKind::Lit(lit) => is_escaped_literal_token_lit(lit, unescaped),
+                ExprKind::Lit(lit) => is_escaped_lit(lit, unescaped),
                 _ => false,
             },
             _ => false,
@@ -721,47 +721,47 @@ fn is_escaped_literal_token(token: &Token, unescaped: Symbol) -> bool {
     }
 }
 
-fn is_escaped_literal_macro_arg(arg: &AttrArgsEq, unescaped: Symbol) -> bool {
-    match arg {
+fn is_escaped_literal_attr_args(value: &AttrArgsEq, unescaped: Symbol) -> bool {
+    match value {
         AttrArgsEq::Ast(expr) => match &expr.kind {
-            ExprKind::Lit(lit) => is_escaped_literal_token_lit(lit, unescaped),
+            ExprKind::Lit(lit) => is_escaped_lit(lit, unescaped),
             _ => false,
         },
-        AttrArgsEq::Hir(lit) => is_escaped_literal_ast_lit(lit, unescaped),
+        AttrArgsEq::Hir(lit) => is_escaped_literal_meta_item_lit(lit, unescaped),
     }
 }
 
-fn is_escaped_literal_ast_lit(lit: &Lit, unescaped: Symbol) -> bool {
+fn is_escaped_literal_meta_item_lit(lit: &MetaItemLit, unescaped: Symbol) -> bool {
     match lit {
-        Lit {
+        MetaItemLit {
             token_lit:
-                token::Lit {
+                Lit {
                     kind: token::LitKind::Str,
                     symbol: _,
                     suffix: None,
                 },
             kind,
             span: _,
-        } => is_escaped_literal_lit_kind(kind, unescaped),
+        } => is_escaped_lit_kind(kind, unescaped),
         _ => false,
     }
 }
 
-fn is_escaped_literal_token_lit(lit: &token::Lit, unescaped: Symbol) -> bool {
+fn is_escaped_lit(lit: &Lit, unescaped: Symbol) -> bool {
     match lit {
-        token::Lit {
+        Lit {
             kind: token::LitKind::Str,
             symbol: _,
             suffix: None,
         } => match LitKind::from_token_lit(*lit) {
-            Ok(lit_kind) => is_escaped_literal_lit_kind(&lit_kind, unescaped),
+            Ok(lit_kind) => is_escaped_lit_kind(&lit_kind, unescaped),
             _ => false,
         },
         _ => false,
     }
 }
 
-fn is_escaped_literal_lit_kind(kind: &LitKind, unescaped: Symbol) -> bool {
+fn is_escaped_lit_kind(kind: &LitKind, unescaped: Symbol) -> bool {
     match kind {
         LitKind::Str(symbol, StrStyle::Cooked) => {
             symbol.as_str().replace('\r', "") == unescaped.as_str().replace('\r', "")
@@ -795,8 +795,8 @@ impl SpanlessEq for AttrKind {
                 SpanlessEq::eq(&path, &normal2.item.path)
                     && match &normal2.item.args {
                         AttrArgs::Empty | AttrArgs::Delimited(_) => false,
-                        AttrArgs::Eq(_span, token) => {
-                            is_escaped_literal_macro_arg(token, *unescaped)
+                        AttrArgs::Eq(_span, value) => {
+                            is_escaped_literal_attr_args(value, *unescaped)
                         }
                     }
             }

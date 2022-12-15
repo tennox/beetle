@@ -2,10 +2,13 @@ use std::{io::Read, path::PathBuf, time::Instant};
 
 use anyhow::Result;
 use bytes::Bytes;
-use iroh_resolver::{
+use iroh_metrics::resolver::OutMetrics;
+use iroh_resolver::resolver::{read_to_vec, stream_to_resolver, Path};
+use iroh_unixfs::{
+    self,
+    builder::FileBuilder,
     chunker::{self, Chunker},
-    resolver::{OutMetrics, Path, ResponseClip},
-    unixfs_builder::{read_to_vec, stream_to_resolver, FileBuilder},
+    ResponseClip,
 };
 
 async fn read_fixture(path: impl AsRef<std::path::Path>) -> Result<Vec<u8>> {
@@ -51,7 +54,7 @@ async fn test_dagger_testdata() -> Result<()> {
         },
         Param {
             degree: 174,
-            chunker: Chunker::Rabin(Box::new(chunker::Rabin::default())),
+            chunker: Chunker::Rabin(Box::default()),
         },
     ];
 

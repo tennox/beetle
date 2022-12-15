@@ -3,22 +3,27 @@
 set -e
 
 rm -rf third-party/*
-rm .cargo/config
+rm .cargo/config.toml
 
 rm Cargo.lock
 
 cargo clean
 cargo update $@
 
-cargo vendor -- third-party > .cargo/config
+cargo vendor -- third-party > .cargo/config.toml
 
-cat <<EOF >> .cargo/config
+# Keep in sync with the upstream .cargo/config.toml at
+# https://github.com/n0-computer/iroh/blob/main/.cargo/config.toml
+cat <<EOF >> .cargo/config.toml
 
 [alias]
 xtask = "run --package xtask --"
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
+
+[build]
+rustflags = ["-Wmissing_debug_implementations"]
 EOF
 
 echo "Before rm: `du -h -d 0 third-party`"

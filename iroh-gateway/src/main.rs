@@ -9,8 +9,8 @@ use iroh_gateway::{
     core::Core,
     metrics,
 };
-use iroh_resolver::content_loader::{FullLoader, FullLoaderConfig};
 use iroh_rpc_client::Client as RpcClient;
+use iroh_unixfs::content_loader::{FullLoader, FullLoaderConfig};
 use iroh_util::lock::ProgramLock;
 use iroh_util::{iroh_config_path, make_config};
 use tokio::sync::RwLock;
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
         false => Arc::new(None),
     };
     let rpc_addr = config
-        .server_rpc_addr()?
+        .rpc_addr()
         .ok_or_else(|| anyhow!("missing gateway rpc addr"))?;
 
     let content_loader = FullLoader::new(

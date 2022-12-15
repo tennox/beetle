@@ -165,12 +165,12 @@
 //!
 //! 1. Terminals
 //!
-//!     | Terminal   | Usage                                                          |
-//!     |------------|----------------------------------------------------------------|
-//!     | `"a"`      | matches the exact string `"a"`                                 |
-//!     | `^"a"`     | matches the exact string `"a"` case insensitively (ASCII only) |
-//!     | `'a'..'z'` | matches one character between `'a'` and `'z'`                  |
-//!     | `a`        | matches rule `a`                                               |
+//! | Terminal   | Usage                                                          |
+//! |------------|----------------------------------------------------------------|
+//! | `"a"`      | matches the exact string `"a"`                                 |
+//! | `^"a"`     | matches the exact string `"a"` case insensitively (ASCII only) |
+//! | `'a'..'z'` | matches one character between `'a'` and `'z'`                  |
+//! | `a`        | matches rule `a`                                               |
 //!
 //! Strings and characters follow
 //! [Rust's escape mechanisms](https://doc.rust-lang.org/reference/tokens.html#byte-escapes), while
@@ -179,23 +179,36 @@
 //!
 //! 2. Non-terminals
 //!
-//!     | Non-terminal          | Usage                                                      |
-//!     |-----------------------|------------------------------------------------------------|
-//!     | `(e)`                 | matches `e`                                                |
-//!     | `e1 ~ e2`             | matches the sequence `e1` `e2`                             |
-//!     | <code>e1 \| e2</code> | matches either `e1` or `e2`                                |
-//!     | `e*`                  | matches `e` zero or more times                             |
-//!     | `e+`                  | matches `e` one or more times                              |
-//!     | `e{n}`                | matches `e` exactly `n` times                              |
-//!     | `e{, n}`              | matches `e` at most `n` times                              |
-//!     | `e{n,} `              | matches `e` at least `n` times                             |
-//!     | `e{m, n}`             | matches `e` between `m` and `n` times inclusively          |
-//!     | `e?`                  | optionally matches `e`                                     |
-//!     | `&e`                  | matches `e` without making progress                        |
-//!     | `!e`                  | matches if `e` doesn't match without making progress       |
-//!     | `PUSH(e)`             | matches `e` and pushes it's captured string down the stack |
+//! | Non-terminal          | Usage                                                      |
+//! |-----------------------|------------------------------------------------------------|
+//! | `(e)`                 | matches `e`                                                |
+//! | `e1 ~ e2`             | matches the sequence `e1` `e2`                             |
+//! | <code>e1 \| e2</code> | matches either `e1` or `e2`                                |
+//! | `e*`                  | matches `e` zero or more times                             |
+//! | `e+`                  | matches `e` one or more times                              |
+//! | `e{n}`                | matches `e` exactly `n` times                              |
+//! | `e{, n}`              | matches `e` at most `n` times                              |
+//! | `e{n,}`               | matches `e` at least `n` times                             |
+//! | `e{m, n}`             | matches `e` between `m` and `n` times inclusively          |
+//! | `e?`                  | optionally matches `e`                                     |
+//! | `&e`                  | matches `e` without making progress                        |
+//! | `!e`                  | matches if `e` doesn't match without making progress       |
+//! | `PUSH(e)`             | matches `e` and pushes it's captured string down the stack |
 //!
-//!     where `e`, `e1`, and `e2` are expressions.
+//! where `e`, `e1`, and `e2` are expressions.
+//!
+//! Matching is greedy, without backtracking.  Note the difference in behavior for
+//! these two rules in matching identifiers that don't end in an underscore:
+//!
+//! ```ignore
+//! // input: ab_bb_b
+//!
+//! identifier = @{ "a" ~ ("b"|"_")* ~ "b" }
+//! // matches:      a     b_bb_b       nothing -> error!      
+//!
+//! identifier = @{ "a" ~ ("_"* ~ "b")* }
+//! // matches:      a     b, _bb, _b   in three repetitions
+//! ```
 //!
 //! Expressions can modify the stack only if they match the input. For example,
 //! if `e1` in the compound expression `e1 | e2` does not match the input, then

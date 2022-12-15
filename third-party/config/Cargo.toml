@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "config"
-version = "0.13.2"
+version = "0.13.3"
 authors = ["Ryan Leckey <leckey.ryan@gmail.com>"]
 description = "Layered configuration system for Rust applications."
 homepage = "https://github.com/mehcode/config-rs"

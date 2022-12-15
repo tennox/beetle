@@ -79,13 +79,13 @@ impl Uid {
     }
 
     /// Returns Uid of calling process. This is practically a more Rusty alias for `getuid`.
-    #[cfg_attr(has_doc_alias, doc(alias("getuid")))]
+    #[doc(alias("getuid"))]
     pub fn current() -> Self {
         getuid()
     }
 
     /// Returns effective Uid of calling process. This is practically a more Rusty alias for `geteuid`.
-    #[cfg_attr(has_doc_alias, doc(alias("geteuid")))]
+    #[doc(alias("geteuid"))]
     pub fn effective() -> Self {
         geteuid()
     }
@@ -136,13 +136,13 @@ impl Gid {
     }
 
     /// Returns Gid of calling process. This is practically a more Rusty alias for `getgid`.
-    #[cfg_attr(has_doc_alias, doc(alias("getgid")))]
+    #[doc(alias("getgid"))]
     pub fn current() -> Self {
         getgid()
     }
 
     /// Returns effective Gid of calling process. This is practically a more Rusty alias for `getegid`.
-    #[cfg_attr(has_doc_alias, doc(alias("getegid")))]
+    #[doc(alias("getegid"))]
     pub fn effective() -> Self {
         getegid()
     }
@@ -188,13 +188,13 @@ impl Pid {
     }
 
     /// Returns PID of calling process
-    #[cfg_attr(has_doc_alias, doc(alias("getpid")))]
+    #[doc(alias("getpid"))]
     pub fn this() -> Self {
         getpid()
     }
 
     /// Returns PID of parent of calling process
-    #[cfg_attr(has_doc_alias, doc(alias("getppid")))]
+    #[doc(alias("getppid"))]
     pub fn parent() -> Self {
         getppid()
     }
@@ -417,7 +417,7 @@ feature! {
 /// Create a copy of the specified file descriptor (see
 /// [dup(2)](https://pubs.opengroup.org/onlinepubs/9699919799/functions/dup.html)).
 ///
-/// The new file descriptor will be have a new index but refer to the same
+/// The new file descriptor will have a new index but refer to the same
 /// resource as the old file descriptor and the old and new file descriptors may
 /// be used interchangeably.  The new and old file descriptor share the same
 /// underlying resource, offset, and file status flags.  The actual index used
@@ -1354,6 +1354,17 @@ pub fn sync() {
     unsafe { libc::sync() };
 }
 
+/// Commit filesystem caches containing file referred to by the open file
+/// descriptor `fd` to disk
+///
+/// See also [syncfs(2)](https://man7.org/linux/man-pages/man2/sync.2.html)
+#[cfg(target_os = "linux")]
+pub fn syncfs(fd: RawFd) -> Result<()> {
+    let res = unsafe { libc::syncfs(fd) };
+
+    Errno::result(res).map(drop)
+}
+
 /// Synchronize changes to a file
 ///
 /// See also [fsync(2)](https://pubs.opengroup.org/onlinepubs/9699919799/functions/fsync.html)
@@ -2196,7 +2207,7 @@ pub enum SysconfVar {
     /// Unless otherwise noted, the maximum length, in bytes, of a utility's
     /// input line (either standard input or another file), when the utility is
     /// described as processing text files. The length includes room for the
-    /// trailing <newline>.
+    /// trailing newline.
     #[cfg(not(any(target_os = "redox", target_os = "haiku")))]
     #[cfg_attr(docsrs, doc(cfg(all())))]
     LINE_MAX = libc::_SC_LINE_MAX,
@@ -2910,13 +2921,33 @@ pub fn access<P: ?Sized + NixPath>(path: &P, amode: AccessFlags) -> Result<()> {
 /// # References
 ///
 /// [faccessat(2)](http://pubs.opengroup.org/onlinepubs/9699919799/functions/faccessat.html)
-// illumos: faccessat(2) appears to be supported, but the libc crate does not provide a binding.
 // redox: does not appear to support the *at family of syscalls.
-#[cfg(not(any(target_os = "illumos", target_os = "redox")))]
+#[cfg(not(target_os = "redox"))]
 pub fn faccessat<P: ?Sized + NixPath>(dirfd: Option<RawFd>, path: &P, mode: AccessFlags, flags: AtFlags) -> Result<()> {
     let res = path.with_nix_path(|cstr| {
         unsafe {
             libc::faccessat(at_rawfd(dirfd), cstr.as_ptr(), mode.bits(), flags.bits())
+        }
+    })?;
+    Errno::result(res).map(drop)
+}
+
+/// Checks the file named by `path` for accessibility according to the flags given
+/// by `mode` using effective UID, effective GID and supplementary group lists.
+///
+/// # References
+///
+/// * [FreeBSD man page](https://www.freebsd.org/cgi/man.cgi?query=eaccess&sektion=2&n=1)
+/// * [Linux man page](https://man7.org/linux/man-pages/man3/euidaccess.3.html)
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "uclibc")),
+    target_os = "freebsd",
+    target_os = "dragonfly"
+))]
+pub fn eaccess<P: ?Sized + NixPath>(path: &P, mode: AccessFlags) -> Result<()> {
+    let res = path.with_nix_path(|cstr| {
+        unsafe {
+            libc::eaccess(cstr.as_ptr(), mode.bits)
         }
     })?;
     Errno::result(res).map(drop)
@@ -2984,12 +3015,12 @@ impl From<&libc::passwd> for User {
     fn from(pw: &libc::passwd) -> User {
         unsafe {
             User {
-                name: CStr::from_ptr(pw.pw_name).to_string_lossy().into_owned(),
-                passwd: CString::new(CStr::from_ptr(pw.pw_passwd).to_bytes()).unwrap(),
+                name: if pw.pw_name.is_null() { Default::default() } else { CStr::from_ptr(pw.pw_name).to_string_lossy().into_owned() },
+                passwd: if pw.pw_passwd.is_null() { Default::default() } else { CString::new(CStr::from_ptr(pw.pw_passwd).to_bytes()).unwrap() },
                 #[cfg(not(all(target_os = "android", target_pointer_width = "32")))]
-                gecos: CString::new(CStr::from_ptr(pw.pw_gecos).to_bytes()).unwrap(),
-                dir: PathBuf::from(OsStr::from_bytes(CStr::from_ptr(pw.pw_dir).to_bytes())),
-                shell: PathBuf::from(OsStr::from_bytes(CStr::from_ptr(pw.pw_shell).to_bytes())),
+                gecos: if pw.pw_gecos.is_null() { Default::default() } else { CString::new(CStr::from_ptr(pw.pw_gecos).to_bytes()).unwrap() },
+                dir: if pw.pw_dir.is_null() { Default::default() } else { PathBuf::from(OsStr::from_bytes(CStr::from_ptr(pw.pw_dir).to_bytes())) },
+                shell: if pw.pw_shell.is_null() { Default::default() } else { PathBuf::from(OsStr::from_bytes(CStr::from_ptr(pw.pw_shell).to_bytes())) },
                 uid: Uid::from_raw(pw.pw_uid),
                 gid: Gid::from_raw(pw.pw_gid),
                 #[cfg(not(any(target_os = "android",
@@ -3143,7 +3174,10 @@ impl User {
     /// assert_eq!(res.name, "root");
     /// ```
     pub fn from_name(name: &str) -> Result<Option<Self>> {
-        let name = CString::new(name).unwrap();
+        let name = match CString::new(name) {
+            Ok(c_str) => c_str,
+            Err(_nul_error) => return Ok(None),
+        };
         User::from_anything(|pwd, cbuf, cap, res| {
             unsafe { libc::getpwnam_r(name.as_ptr(), pwd, cbuf, cap, res) }
         })
@@ -3268,7 +3302,10 @@ impl Group {
     /// assert!(res.name == "root");
     /// ```
     pub fn from_name(name: &str) -> Result<Option<Self>> {
-        let name = CString::new(name).unwrap();
+        let name = match CString::new(name) {
+            Ok(c_str) => c_str,
+            Err(_nul_error) => return Ok(None),
+        };
         Group::from_anything(|grp, cbuf, cap, res| {
             unsafe { libc::getgrnam_r(name.as_ptr(), grp, cbuf, cap, res) }
         })

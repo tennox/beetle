@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.57"
 name = "der"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["RustCrypto Developers"]
 description = """
 Pure Rust embedded-friendly implementation of the Distinguished Encoding Rules
@@ -36,7 +36,6 @@ categories = [
 ]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/formats/tree/master/der"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true

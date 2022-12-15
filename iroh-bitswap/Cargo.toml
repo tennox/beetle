@@ -6,14 +6,14 @@ authors = ["dignifiedquire <me@dignifiedquire.com>"]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/n0-computer/iroh"
 description = "Implementation of the bitswap protocol"
-rust-version = "1.63"
+rust-version = "1.65"
 
 [build-dependencies]
 prost-build = "0.11.1"
 
 [dependencies]
 ahash = "0.8.0"
-anyhow = "1"
+anyhow = { version = "1", features = ["backtrace"] }
 async-broadcast = "0.4.1"
 async-channel = "1.7.1"
 async-trait = "0.1.57"
@@ -53,6 +53,3 @@ tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 [[bench]]
 name = "message"
 harness = false
-
-[features]
-default = []

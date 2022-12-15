@@ -91,7 +91,7 @@ pub fn resolve_addr(ptr: *mut c_void) -> Frame {
     }
 }
 
-pub unsafe fn trace_unsynchronized<F: FnMut(&super::Frame) -> bool>(mut cb: F) {
+unsafe fn trace_unsynchronized<F: FnMut(&super::Frame) -> bool>(mut cb: F) {
     let len = miri_backtrace_size(0);
 
     let mut frames = Vec::with_capacity(len);
@@ -102,6 +102,8 @@ pub unsafe fn trace_unsynchronized<F: FnMut(&super::Frame) -> bool>(mut cb: F) {
 
     for ptr in frames.iter() {
         let frame = resolve_addr(*ptr as *mut c_void);
-        cb(&super::Frame { inner: frame });
+        if !cb(&super::Frame { inner: frame }) {
+            return;
+        }
     }
 }

@@ -15,6 +15,7 @@ use crate::exitcodes;
 /// An acquired lock is released either when the object is dropped
 /// or when the program stops, which removes the file
 /// Invalid or corrupt locks are overwritten on acquisition
+#[derive(Debug)]
 pub struct ProgramLock {
     path: PathBuf,
     lock: Option<sysinfo::Pid>,
@@ -25,10 +26,10 @@ impl ProgramLock {
     /// Create a new lock for the given program. This does not yet acquire the lock.
     pub fn new(prog_name: &str) -> Result<Self> {
         #[cfg(not(target_os = "android"))]
-        let path = crate::iroh_data_path(&format!("{}.lock", prog_name))
+        let path = crate::iroh_data_path(&format!("{prog_name}.lock"))
             .map_err(|e| LockError::InvalidPath { source: e })?;
         #[cfg(target_os = "android")]
-        let path = format!("/data/local/tmp/{}.lock", prog_name).into();
+        let path = format!("/data/local/tmp/{prog_name}.lock").into();
         Ok(Self {
             path,
             lock: None,
@@ -167,7 +168,7 @@ impl Drop for ProgramLock {
 
 /// Report Process ID stored in a lock file
 pub fn read_lock_pid(prog_name: &str) -> Result<Pid> {
-    let path = crate::iroh_data_path(&format!("{}.lock", prog_name))?;
+    let path = crate::iroh_data_path(&format!("{prog_name}.lock"))?;
     read_lock(&path)
 }
 

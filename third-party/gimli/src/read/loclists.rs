@@ -233,7 +233,7 @@ impl<R: Reader> LocationLists<R> {
         let (mut input, format) = if unit_encoding.version <= 4 {
             (self.debug_loc.section.clone(), LocListsFormat::Bare)
         } else {
-            (self.debug_loclists.section.clone(), LocListsFormat::LLE)
+            (self.debug_loclists.section.clone(), LocListsFormat::Lle)
         };
         input.skip(offset.0)?;
         Ok(RawLocListIter::new(input, unit_encoding, format))
@@ -259,7 +259,7 @@ impl<R: Reader> LocationLists<R> {
         Ok(RawLocListIter::new(
             input,
             unit_encoding,
-            LocListsFormat::LLE,
+            LocListsFormat::Lle,
         ))
     }
 
@@ -300,7 +300,7 @@ enum LocListsFormat {
     Bare,
     /// The DW_LLE encoded range list format used in DWARF 5 and the non-standard GNU
     /// split dwarf extension.
-    LLE,
+    Lle,
 }
 
 /// A raw iterator over a location list.
@@ -402,10 +402,10 @@ fn parse_data<R: Reader>(input: &mut R, encoding: Encoding) -> Result<Expression
 impl<R: Reader> RawLocListEntry<R> {
     /// Parse a location list entry from `.debug_loclists`
     fn parse(input: &mut R, encoding: Encoding, format: LocListsFormat) -> Result<Option<Self>> {
-        match format {
+        Ok(match format {
             LocListsFormat::Bare => {
                 let range = RawRange::parse(input, encoding.address_size)?;
-                return Ok(if range.is_end() {
+                if range.is_end() {
                     None
                 } else if range.is_base_address(encoding.address_size) {
                     Some(RawLocListEntry::BaseAddress { addr: range.end })
@@ -417,9 +417,9 @@ impl<R: Reader> RawLocListEntry<R> {
                         end: range.end,
                         data,
                     })
-                });
+                }
             }
-            LocListsFormat::LLE => Ok(match constants::DwLle(input.read_u8()?) {
+            LocListsFormat::Lle => match constants::DwLle(input.read_u8()?) {
                 constants::DW_LLE_end_of_list => None,
                 constants::DW_LLE_base_addressx => Some(RawLocListEntry::BaseAddressx {
                     addr: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
@@ -463,8 +463,8 @@ impl<R: Reader> RawLocListEntry<R> {
                 _ => {
                     return Err(Error::InvalidAddressRange);
                 }
-            }),
-        }
+            },
+        })
     }
 }
 
@@ -552,63 +552,96 @@ impl<R: Reader> LocListIter<R> {
                 None => return Ok(None),
             };
 
-            let (range, data) = match raw_loc {
-                RawLocListEntry::BaseAddress { addr } => {
-                    self.base_address = addr;
-                    continue;
-                }
-                RawLocListEntry::BaseAddressx { addr } => {
-                    self.base_address = self.get_address(addr)?;
-                    continue;
-                }
-                RawLocListEntry::StartxEndx { begin, end, data } => {
-                    let begin = self.get_address(begin)?;
-                    let end = self.get_address(end)?;
-                    (Range { begin, end }, data)
-                }
-                RawLocListEntry::StartxLength {
-                    begin,
-                    length,
-                    data,
-                } => {
-                    let begin = self.get_address(begin)?;
-                    let end = begin + length;
-                    (Range { begin, end }, data)
-                }
-                RawLocListEntry::DefaultLocation { data } => (
-                    Range {
-                        begin: 0,
-                        end: u64::max_value(),
-                    },
-                    data,
-                ),
-                RawLocListEntry::AddressOrOffsetPair { begin, end, data }
-                | RawLocListEntry::OffsetPair { begin, end, data } => {
-                    let mut range = Range { begin, end };
-                    range.add_base_address(self.base_address, self.raw.encoding.address_size);
-                    (range, data)
-                }
-                RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
-                RawLocListEntry::StartLength {
-                    begin,
-                    length,
-                    data,
-                } => (
-                    Range {
-                        begin,
-                        end: begin + length,
-                    },
-                    data,
-                ),
-            };
-
-            if range.begin > range.end {
-                self.raw.input.empty();
-                return Err(Error::InvalidLocationAddressRange);
+            let loc = self.convert_raw(raw_loc)?;
+            if loc.is_some() {
+                return Ok(loc);
             }
-
-            return Ok(Some(LocationListEntry { range, data }));
         }
+    }
+
+    /// Return the next raw location.
+    ///
+    /// The raw location should be passed to `convert_raw`.
+    #[doc(hidden)]
+    pub fn next_raw(&mut self) -> Result<Option<RawLocListEntry<R>>> {
+        self.raw.next()
+    }
+
+    /// Convert a raw location into a location, and update the state of the iterator.
+    ///
+    /// The raw location should have been obtained from `next_raw`.
+    #[doc(hidden)]
+    pub fn convert_raw(
+        &mut self,
+        raw_loc: RawLocListEntry<R>,
+    ) -> Result<Option<LocationListEntry<R>>> {
+        let mask = !0 >> (64 - self.raw.encoding.address_size * 8);
+        let tombstone = if self.raw.encoding.version <= 4 {
+            mask - 1
+        } else {
+            mask
+        };
+
+        let (range, data) = match raw_loc {
+            RawLocListEntry::BaseAddress { addr } => {
+                self.base_address = addr;
+                return Ok(None);
+            }
+            RawLocListEntry::BaseAddressx { addr } => {
+                self.base_address = self.get_address(addr)?;
+                return Ok(None);
+            }
+            RawLocListEntry::StartxEndx { begin, end, data } => {
+                let begin = self.get_address(begin)?;
+                let end = self.get_address(end)?;
+                (Range { begin, end }, data)
+            }
+            RawLocListEntry::StartxLength {
+                begin,
+                length,
+                data,
+            } => {
+                let begin = self.get_address(begin)?;
+                let end = begin.wrapping_add(length) & mask;
+                (Range { begin, end }, data)
+            }
+            RawLocListEntry::DefaultLocation { data } => (
+                Range {
+                    begin: 0,
+                    end: u64::max_value(),
+                },
+                data,
+            ),
+            RawLocListEntry::AddressOrOffsetPair { begin, end, data }
+            | RawLocListEntry::OffsetPair { begin, end, data } => {
+                if self.base_address == tombstone {
+                    return Ok(None);
+                }
+                let mut range = Range { begin, end };
+                range.add_base_address(self.base_address, self.raw.encoding.address_size);
+                (range, data)
+            }
+            RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
+            RawLocListEntry::StartLength {
+                begin,
+                length,
+                data,
+            } => {
+                let end = begin.wrapping_add(length) & mask;
+                (Range { begin, end }, data)
+            }
+        };
+
+        if range.begin == tombstone {
+            return Ok(None);
+        }
+
+        if range.begin > range.end {
+            self.raw.input.empty();
+            return Err(Error::InvalidLocationAddressRange);
+        }
+
+        Ok(Some(LocationListEntry { range, data }))
     }
 }
 
@@ -643,6 +676,7 @@ mod tests {
 
     #[test]
     fn test_loclists_32() {
+        let tombstone = !0u32;
         let encoding = Encoding {
             format: Format::Dwarf32,
             version: 5,
@@ -653,7 +687,9 @@ mod tests {
             .L32(0x0300_0000)
             .L32(0x0301_0300)
             .L32(0x0301_0400)
-            .L32(0x0301_0500);
+            .L32(0x0301_0500)
+            .L32(tombstone)
+            .L32(0x0301_0600);
         let buf = section.get_contents().unwrap();
         let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
@@ -697,6 +733,25 @@ mod tests {
             .L8(2).uleb(1).uleb(2).uleb(4).L32(12)
             // A StartxLength
             .L8(3).uleb(3).uleb(0x100).uleb(4).L32(13)
+
+            // Tombstone entries, all of which should be ignored.
+            // A BaseAddressx that is a tombstone.
+            .L8(1).uleb(4)
+            .L8(4).uleb(0x11100).uleb(0x11200).uleb(4).L32(20)
+            // A BaseAddress that is a tombstone.
+            .L8(6).L32(tombstone)
+            .L8(4).uleb(0x11300).uleb(0x11400).uleb(4).L32(21)
+            // A StartxEndx that is a tombstone.
+            .L8(2).uleb(4).uleb(5).uleb(4).L32(22)
+            // A StartxLength that is a tombstone.
+            .L8(3).uleb(4).uleb(0x100).uleb(4).L32(23)
+            // A StartEnd that is a tombstone.
+            .L8(7).L32(tombstone).L32(0x201_1500).uleb(4).L32(24)
+            // A StartLength that is a tombstone.
+            .L8(8).L32(tombstone).uleb(0x100).uleb(4).L32(25)
+            // A StartEnd (not ignored)
+            .L8(7).L32(0x201_1600).L32(0x201_1700).uleb(4).L32(26)
+
             // A range end.
             .L8(0)
             // Some extra data.
@@ -854,6 +909,18 @@ mod tests {
             }))
         );
 
+        // A StartEnd location following the tombstones
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x0201_1600,
+                    end: 0x0201_1700,
+                },
+                data: Expression(EndianSlice::new(&[26, 0, 0, 0], LittleEndian)),
+            }))
+        );
+
         // A location list end.
         assert_eq!(locations.next(), Ok(None));
 
@@ -872,6 +939,7 @@ mod tests {
 
     #[test]
     fn test_loclists_64() {
+        let tombstone = !0u64;
         let encoding = Encoding {
             format: Format::Dwarf64,
             version: 5,
@@ -882,7 +950,9 @@ mod tests {
             .L64(0x0300_0000)
             .L64(0x0301_0300)
             .L64(0x0301_0400)
-            .L64(0x0301_0500);
+            .L64(0x0301_0500)
+            .L64(tombstone)
+            .L64(0x0301_0600);
         let buf = section.get_contents().unwrap();
         let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
@@ -927,6 +997,25 @@ mod tests {
             .L8(2).uleb(1).uleb(2).uleb(4).L32(12)
             // A StartxLength
             .L8(3).uleb(3).uleb(0x100).uleb(4).L32(13)
+
+            // Tombstone entries, all of which should be ignored.
+            // A BaseAddressx that is a tombstone.
+            .L8(1).uleb(4)
+            .L8(4).uleb(0x11100).uleb(0x11200).uleb(4).L32(20)
+            // A BaseAddress that is a tombstone.
+            .L8(6).L64(tombstone)
+            .L8(4).uleb(0x11300).uleb(0x11400).uleb(4).L32(21)
+            // A StartxEndx that is a tombstone.
+            .L8(2).uleb(4).uleb(5).uleb(4).L32(22)
+            // A StartxLength that is a tombstone.
+            .L8(3).uleb(4).uleb(0x100).uleb(4).L32(23)
+            // A StartEnd that is a tombstone.
+            .L8(7).L64(tombstone).L64(0x201_1500).uleb(4).L32(24)
+            // A StartLength that is a tombstone.
+            .L8(8).L64(tombstone).uleb(0x100).uleb(4).L32(25)
+            // A StartEnd (not ignored)
+            .L8(7).L64(0x201_1600).L64(0x201_1700).uleb(4).L32(26)
+
             // A range end.
             .L8(0)
             // Some extra data.
@@ -1084,6 +1173,18 @@ mod tests {
             }))
         );
 
+        // A StartEnd location following the tombstones
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x0201_1600,
+                    end: 0x0201_1700,
+                },
+                data: Expression(EndianSlice::new(&[26, 0, 0, 0], LittleEndian)),
+            }))
+        );
+
         // A location list end.
         assert_eq!(locations.next(), Ok(None));
 
@@ -1102,6 +1203,7 @@ mod tests {
 
     #[test]
     fn test_location_list_32() {
+        let tombstone = !0u32 - 1;
         let start = Label::new();
         let first = Label::new();
         #[rustfmt::skip]
@@ -1123,6 +1225,11 @@ mod tests {
             // A location range that ends at -1.
             .L32(0xffff_ffff).L32(0x0000_0000)
             .L32(0).L32(0xffff_ffff).L16(4).L32(7)
+            // A normal location with tombstone.
+            .L32(tombstone).L32(tombstone).L16(4).L32(8)
+            // A base address selection with tombstone followed by a normal location.
+            .L32(0xffff_ffff).L32(tombstone)
+            .L32(0x10a00).L32(0x10b00).L16(4).L32(9)
             // A location list end.
             .L32(0).L32(0)
             // Some extra data.
@@ -1232,6 +1339,7 @@ mod tests {
 
     #[test]
     fn test_location_list_64() {
+        let tombstone = !0u64 - 1;
         let start = Label::new();
         let first = Label::new();
         #[rustfmt::skip]
@@ -1253,6 +1361,11 @@ mod tests {
             // A location range that ends at -1.
             .L64(0xffff_ffff_ffff_ffff).L64(0x0000_0000)
             .L64(0).L64(0xffff_ffff_ffff_ffff).L16(4).L32(7)
+            // A normal location with tombstone.
+            .L64(tombstone).L64(tombstone).L16(4).L32(8)
+            // A base address selection with tombstone followed by a normal location.
+            .L64(0xffff_ffff_ffff_ffff).L64(tombstone)
+            .L64(0x10a00).L64(0x10b00).L16(4).L32(9)
             // A location list end.
             .L64(0).L64(0)
             // Some extra data.

@@ -1,4 +1,4 @@
-use std::{sync::Arc, thread::available_parallelism};
+use std::{fmt, sync::Arc, thread::available_parallelism};
 
 use ahash::AHashSet;
 use anyhow::{anyhow, bail, Context, Result};
@@ -22,7 +22,7 @@ use tokio::task;
 use crate::cf::{GraphV0, MetadataV0, CF_BLOBS_V0, CF_GRAPH_V0, CF_ID_V0, CF_METADATA_V0};
 use crate::Config;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Store {
     inner: Arc<InnerStore>,
 }
@@ -32,6 +32,17 @@ struct InnerStore {
     next_id: RwLock<u64>,
     _cache: Cache,
     _rpc_client: RpcClient,
+}
+
+impl fmt::Debug for InnerStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InnerStore")
+            .field("content", &self.content)
+            .field("next_id", &self.next_id)
+            .field("_cache", &"rocksdb::db_options::Cache")
+            .field("_rpc_client", &self._rpc_client)
+            .finish()
+    }
 }
 
 /// Creates the default rocksdb options
@@ -647,7 +658,7 @@ impl<'a> ReadStore<'a> {
                             let meta = rkyv::check_archived_root::<MetadataV0>(&meta)
                                 .map_err(|e| anyhow!("{:?}", e))?;
                             let multihash = cid::multihash::Multihash::from_bytes(&meta.multihash)?;
-                            let c = cid::Cid::new_v1(meta.codec, multihash);
+                            let c = Cid::new_v1(meta.codec, multihash);
                             links.push(c);
                         }
                         None => {

@@ -11,8 +11,9 @@
 
 [package]
 edition = "2018"
+rust-version = "1.48"
 name = "rustix"
-version = "0.36.4"
+version = "0.36.5"
 authors = [
     "Dan Gohman <dev@sunfishcode.online>",
     "Jakub Konka <kubkon@jakubkonka.com>",
@@ -185,6 +186,9 @@ features = [
 ]
 default-features = false
 
+[target."cfg(all(criterion, not(any(target_os = \"emscripten\", target_os = \"wasi\"))))".dev-dependencies.criterion]
+version = "0.4"
+
 [target."cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"), all(target_endian = \"little\", any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"powerpc64\", target_arch = \"riscv64\", target_arch = \"mips\", target_arch = \"mips64\")))))".dependencies.libc]
 version = "0.2.133"
 features = ["extra_traits"]
@@ -218,9 +222,6 @@ package = "errno"
 [target."cfg(any(target_os = \"android\", target_os = \"linux\"))".dependencies.once_cell]
 version = "1.5.2"
 optional = true
-
-[target."cfg(not(any(target_os = \"emscripten\", target_os = \"wasi\")))".dev-dependencies.criterion]
-version = "0.4"
 
 [target."cfg(windows)".dependencies.windows-sys]
 version = "0.42.0"

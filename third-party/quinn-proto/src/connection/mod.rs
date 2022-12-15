@@ -1865,8 +1865,14 @@ impl Connection {
             None
         };
 
+        let packet = partial_decode.data();
+        let stateless_reset = packet.len() >= RESET_TOKEN_SIZE + 5
+            && self.peer_params.stateless_reset_token.as_deref()
+                == Some(&packet[packet.len() - RESET_TOKEN_SIZE..]);
+
         match partial_decode.finish(header_crypto) {
-            Ok(packet) => self.handle_packet(now, remote, ecn, packet),
+            Ok(packet) => self.handle_packet(now, remote, ecn, Some(packet), stateless_reset),
+            Err(_) if stateless_reset => self.handle_packet(now, remote, ecn, None, true),
             Err(e) => {
                 trace!("unable to complete packet decoding: {}", e);
             }
@@ -1878,15 +1884,18 @@ impl Connection {
         now: Instant,
         remote: SocketAddr,
         ecn: Option<EcnCodepoint>,
-        mut packet: Packet,
+        packet: Option<Packet>,
+        stateless_reset: bool,
     ) {
-        trace!(
-            "got {:?} packet ({} bytes) from {} using id {}",
-            packet.header.space(),
-            packet.payload.len() + packet.header_data.len(),
-            remote,
-            packet.header.dst_cid(),
-        );
+        if let Some(ref packet) = packet {
+            trace!(
+                "got {:?} packet ({} bytes) from {} using id {}",
+                packet.header.space(),
+                packet.payload.len() + packet.header_data.len(),
+                remote,
+                packet.header.dst_cid(),
+            );
+        }
 
         if self.is_handshaking() && remote != self.path.remote {
             debug!("discarding packet with unexpected remote during handshake");
@@ -1895,15 +1904,14 @@ impl Connection {
 
         let was_closed = self.state.is_closed();
         let was_drained = self.state.is_drained();
-        let stateless_reset = self
-            .peer_params
-            .stateless_reset_token
-            .map_or(false, |token| {
-                packet.payload.len() >= RESET_TOKEN_SIZE
-                    && packet.payload[packet.payload.len() - RESET_TOKEN_SIZE..] == token[..]
-            });
 
-        let result = match self.decrypt_packet(now, &mut packet) {
+        let decrypted = match packet {
+            None => Err(None),
+            Some(mut packet) => self
+                .decrypt_packet(now, &mut packet)
+                .map(move |number| (packet, number)),
+        };
+        let result = match decrypted {
             Err(Some(e)) => {
                 warn!("illegal packet: {}", e);
                 Err(e.into())
@@ -1929,7 +1937,7 @@ impl Connection {
                     }
                 }
             }
-            Ok(number) => {
+            Ok((packet, number)) => {
                 let span = match number {
                     Some(pn) => trace_span!("recv", space = ?packet.header.space(), pn),
                     None => trace_span!("recv", space = ?packet.header.space()),
@@ -2639,7 +2647,10 @@ impl Connection {
                 remote,
                 self.config.initial_rtt,
                 self.config.congestion_controller_factory.build(now),
-                self.config.initial_max_udp_payload_size,
+                self.config.initial_max_udp_payload_size.min(
+                    u16::try_from(self.peer_params.max_udp_payload_size.into_inner())
+                        .unwrap_or(u16::MAX),
+                ),
                 now,
                 false,
             )
@@ -2944,6 +2955,9 @@ impl Connection {
             }).expect("preferred address CID is the first received, and hence is guaranteed to be legal");
         }
         self.peer_params = params;
+        self.path.max_udp_payload_size = self.path.max_udp_payload_size.min(
+            u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX),
+        );
     }
 
     fn decrypt_packet(

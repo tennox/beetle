@@ -4,10 +4,8 @@ use futures::{
     Stream, StreamExt,
 };
 use iroh_p2p::NetworkEvent;
-use iroh_resolver::{
-    resolver::{Out, OutPrettyReader, OutType, Path, Resolver, ResponseClip, UnixfsType},
-    unixfs::Link,
-};
+use iroh_resolver::resolver::{Out, OutPrettyReader, OutType, Path, Resolver, UnixfsType};
+use iroh_unixfs::{Link, ResponseClip};
 use libp2p::gossipsub::{GossipsubMessage, MessageId, TopicHash};
 use libp2p::PeerId;
 use tokio::sync::mpsc::{channel, Receiver as ChannelReceiver};
@@ -21,6 +19,7 @@ use crate::{
     ReceiverMessage,
 };
 
+#[derive(Debug)]
 pub struct Receiver {
     p2p: P2pNode,
     gossip_messages: ChannelReceiver<(MessageId, PeerId, GossipsubMessage)>,
@@ -90,8 +89,7 @@ impl Receiver {
                 if from == expected_sender {
                     match bincode::deserialize(&message.data) {
                         Ok(SenderMessage::Start { root, num_parts }) => {
-                            let results = resolver
-                                .resolve_recursive(iroh_resolver::resolver::Path::from_cid(root));
+                            let results = resolver.resolve_recursive(Path::from_cid(root));
                             tokio::pin!(results);
                             // root is the first
                             let mut index = 1;
@@ -167,6 +165,7 @@ pub enum ProgressEvent {
     Piece { index: usize, total: usize },
 }
 
+#[derive(Debug)]
 pub struct Transfer {
     p2p: P2pNode,
     gossip_task: JoinHandle<()>,
@@ -214,6 +213,7 @@ impl Transfer {
     }
 }
 
+#[derive(Debug)]
 pub struct Data {
     resolver: Resolver<Loader>,
     root: Out,

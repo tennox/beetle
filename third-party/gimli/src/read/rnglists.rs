@@ -232,7 +232,7 @@ impl<R: Reader> RangeLists<R> {
         let (mut input, format) = if unit_encoding.version <= 4 {
             (self.debug_ranges.section.clone(), RangeListsFormat::Bare)
         } else {
-            (self.debug_rnglists.section.clone(), RangeListsFormat::RLE)
+            (self.debug_rnglists.section.clone(), RangeListsFormat::Rle)
         };
         input.skip(offset.0)?;
         Ok(RawRngListIter::new(input, unit_encoding, format))
@@ -277,7 +277,7 @@ enum RangeListsFormat {
     /// The bare range list format used before DWARF 5.
     Bare,
     /// The DW_RLE encoded range list format used in DWARF 5.
-    RLE,
+    Rle,
 }
 
 /// A raw iterator over an address range list.
@@ -355,10 +355,10 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
         encoding: Encoding,
         format: RangeListsFormat,
     ) -> Result<Option<Self>> {
-        match format {
+        Ok(match format {
             RangeListsFormat::Bare => {
                 let range = RawRange::parse(input, encoding.address_size)?;
-                return Ok(if range.is_end() {
+                if range.is_end() {
                     None
                 } else if range.is_base_address(encoding.address_size) {
                     Some(RawRngListEntry::BaseAddress { addr: range.end })
@@ -367,9 +367,9 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
                         begin: range.begin,
                         end: range.end,
                     })
-                });
+                }
             }
-            RangeListsFormat::RLE => Ok(match constants::DwRle(input.read_u8()?) {
+            RangeListsFormat::Rle => match constants::DwRle(input.read_u8()?) {
                 constants::DW_RLE_end_of_list => None,
                 constants::DW_RLE_base_addressx => Some(RawRngListEntry::BaseAddressx {
                     addr: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
@@ -400,8 +400,8 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
                 _ => {
                     return Err(Error::InvalidAddressRange);
                 }
-            }),
-        }
+            },
+        })
     }
 }
 
@@ -489,45 +489,78 @@ impl<R: Reader> RngListIter<R> {
                 None => return Ok(None),
             };
 
-            let range = match raw_range {
-                RawRngListEntry::BaseAddress { addr } => {
-                    self.base_address = addr;
-                    continue;
-                }
-                RawRngListEntry::BaseAddressx { addr } => {
-                    self.base_address = self.get_address(addr)?;
-                    continue;
-                }
-                RawRngListEntry::StartxEndx { begin, end } => {
-                    let begin = self.get_address(begin)?;
-                    let end = self.get_address(end)?;
-                    Range { begin, end }
-                }
-                RawRngListEntry::StartxLength { begin, length } => {
-                    let begin = self.get_address(begin)?;
-                    let end = begin + length;
-                    Range { begin, end }
-                }
-                RawRngListEntry::AddressOrOffsetPair { begin, end }
-                | RawRngListEntry::OffsetPair { begin, end } => {
-                    let mut range = Range { begin, end };
-                    range.add_base_address(self.base_address, self.raw.encoding.address_size);
-                    range
-                }
-                RawRngListEntry::StartEnd { begin, end } => Range { begin, end },
-                RawRngListEntry::StartLength { begin, length } => Range {
-                    begin,
-                    end: begin + length,
-                },
-            };
-
-            if range.begin > range.end {
-                self.raw.input.empty();
-                return Err(Error::InvalidAddressRange);
+            let range = self.convert_raw(raw_range)?;
+            if range.is_some() {
+                return Ok(range);
             }
-
-            return Ok(Some(range));
         }
+    }
+
+    /// Return the next raw range.
+    ///
+    /// The raw range should be passed to `convert_range`.
+    #[doc(hidden)]
+    pub fn next_raw(&mut self) -> Result<Option<RawRngListEntry<R::Offset>>> {
+        self.raw.next()
+    }
+
+    /// Convert a raw range into a range, and update the state of the iterator.
+    ///
+    /// The raw range should have been obtained from `next_raw`.
+    #[doc(hidden)]
+    pub fn convert_raw(&mut self, raw_range: RawRngListEntry<R::Offset>) -> Result<Option<Range>> {
+        let mask = !0 >> (64 - self.raw.encoding.address_size * 8);
+        let tombstone = if self.raw.encoding.version <= 4 {
+            mask - 1
+        } else {
+            mask
+        };
+
+        let range = match raw_range {
+            RawRngListEntry::BaseAddress { addr } => {
+                self.base_address = addr;
+                return Ok(None);
+            }
+            RawRngListEntry::BaseAddressx { addr } => {
+                self.base_address = self.get_address(addr)?;
+                return Ok(None);
+            }
+            RawRngListEntry::StartxEndx { begin, end } => {
+                let begin = self.get_address(begin)?;
+                let end = self.get_address(end)?;
+                Range { begin, end }
+            }
+            RawRngListEntry::StartxLength { begin, length } => {
+                let begin = self.get_address(begin)?;
+                let end = begin.wrapping_add(length) & mask;
+                Range { begin, end }
+            }
+            RawRngListEntry::AddressOrOffsetPair { begin, end }
+            | RawRngListEntry::OffsetPair { begin, end } => {
+                if self.base_address == tombstone {
+                    return Ok(None);
+                }
+                let mut range = Range { begin, end };
+                range.add_base_address(self.base_address, self.raw.encoding.address_size);
+                range
+            }
+            RawRngListEntry::StartEnd { begin, end } => Range { begin, end },
+            RawRngListEntry::StartLength { begin, length } => {
+                let end = begin.wrapping_add(length) & mask;
+                Range { begin, end }
+            }
+        };
+
+        if range.begin == tombstone {
+            return Ok(None);
+        }
+
+        if range.begin > range.end {
+            self.raw.input.empty();
+            return Err(Error::InvalidAddressRange);
+        }
+
+        Ok(Some(range))
     }
 }
 
@@ -553,8 +586,6 @@ pub(crate) struct RawRange {
 
 impl RawRange {
     /// Check if this is a range end entry.
-    ///
-    /// This will only occur for raw ranges.
     #[inline]
     pub fn is_end(&self) -> bool {
         self.begin == 0 && self.end == 0
@@ -563,14 +594,13 @@ impl RawRange {
     /// Check if this is a base address selection entry.
     ///
     /// A base address selection entry changes the base address that subsequent
-    /// range entries are relative to.  This will only occur for raw ranges.
+    /// range entries are relative to.
     #[inline]
     pub fn is_base_address(&self, address_size: u8) -> bool {
         self.begin == !0 >> (64 - address_size * 8)
     }
 
     /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
-    #[doc(hidden)]
     #[inline]
     pub fn parse<R: Reader>(input: &mut R, address_size: u8) -> Result<RawRange> {
         let begin = input.read_address(address_size)?;
@@ -610,6 +640,7 @@ mod tests {
 
     #[test]
     fn test_rnglists_32() {
+        let tombstone = !0u32;
         let encoding = Encoding {
             format: Format::Dwarf32,
             version: 5,
@@ -619,7 +650,9 @@ mod tests {
             .L32(0x0300_0000)
             .L32(0x0301_0300)
             .L32(0x0301_0400)
-            .L32(0x0301_0500);
+            .L32(0x0301_0500)
+            .L32(tombstone)
+            .L32(0x0301_0600);
         let buf = section.get_contents().unwrap();
         let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
@@ -637,7 +670,7 @@ mod tests {
             .L8(0)
             .L32(0)
             .mark(&first)
-            // OffsetPair
+            // An OffsetPair using the unit base address.
             .L8(4).uleb(0x10200).uleb(0x10300)
             // A base address selection followed by an OffsetPair.
             .L8(5).L32(0x0200_0000)
@@ -663,6 +696,25 @@ mod tests {
             .L8(2).uleb(1).uleb(2)
             // A StartxLength
             .L8(3).uleb(3).uleb(0x100)
+
+            // Tombstone entries, all of which should be ignored.
+            // A BaseAddressx that is a tombstone.
+            .L8(1).uleb(4)
+            .L8(4).uleb(0x11100).uleb(0x11200)
+            // A BaseAddress that is a tombstone.
+            .L8(5).L32(tombstone)
+            .L8(4).uleb(0x11300).uleb(0x11400)
+            // A StartxEndx that is a tombstone.
+            .L8(2).uleb(4).uleb(5)
+            // A StartxLength that is a tombstone.
+            .L8(3).uleb(4).uleb(0x100)
+            // A StartEnd that is a tombstone.
+            .L8(6).L32(tombstone).L32(0x201_1500)
+            // A StartLength that is a tombstone.
+            .L8(7).L32(tombstone).uleb(0x100)
+            // A StartEnd (not ignored)
+            .L8(6).L32(0x201_1600).L32(0x201_1700)
+
             // A range end.
             .L8(0)
             // Some extra data.
@@ -784,6 +836,15 @@ mod tests {
             }))
         );
 
+        // A StartEnd range following the tombstones
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0201_1600,
+                end: 0x0201_1700,
+            }))
+        );
+
         // A range end.
         assert_eq!(ranges.next(), Ok(None));
 
@@ -802,6 +863,7 @@ mod tests {
 
     #[test]
     fn test_rnglists_64() {
+        let tombstone = !0u64;
         let encoding = Encoding {
             format: Format::Dwarf64,
             version: 5,
@@ -811,7 +873,9 @@ mod tests {
             .L64(0x0300_0000)
             .L64(0x0301_0300)
             .L64(0x0301_0400)
-            .L64(0x0301_0500);
+            .L64(0x0301_0500)
+            .L64(tombstone)
+            .L64(0x0301_0600);
         let buf = section.get_contents().unwrap();
         let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
@@ -830,7 +894,7 @@ mod tests {
             .L8(0)
             .L32(0)
             .mark(&first)
-            // OffsetPair
+            // An OffsetPair using the unit base address.
             .L8(4).uleb(0x10200).uleb(0x10300)
             // A base address selection followed by an OffsetPair.
             .L8(5).L64(0x0200_0000)
@@ -856,6 +920,25 @@ mod tests {
             .L8(2).uleb(1).uleb(2)
             // A StartxLength
             .L8(3).uleb(3).uleb(0x100)
+
+            // Tombstone entries, all of which should be ignored.
+            // A BaseAddressx that is a tombstone.
+            .L8(1).uleb(4)
+            .L8(4).uleb(0x11100).uleb(0x11200)
+            // A BaseAddress that is a tombstone.
+            .L8(5).L64(tombstone)
+            .L8(4).uleb(0x11300).uleb(0x11400)
+            // A StartxEndx that is a tombstone.
+            .L8(2).uleb(4).uleb(5)
+            // A StartxLength that is a tombstone.
+            .L8(3).uleb(4).uleb(0x100)
+            // A StartEnd that is a tombstone.
+            .L8(6).L64(tombstone).L64(0x201_1500)
+            // A StartLength that is a tombstone.
+            .L8(7).L64(tombstone).uleb(0x100)
+            // A StartEnd (not ignored)
+            .L8(6).L64(0x201_1600).L64(0x201_1700)
+
             // A range end.
             .L8(0)
             // Some extra data.
@@ -977,6 +1060,15 @@ mod tests {
             }))
         );
 
+        // A StartEnd range following the tombstones
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0201_1600,
+                end: 0x0201_1700,
+            }))
+        );
+
         // A range end.
         assert_eq!(ranges.next(), Ok(None));
 
@@ -1027,6 +1119,7 @@ mod tests {
 
     #[test]
     fn test_ranges_32() {
+        let tombstone = !0u32 - 1;
         let start = Label::new();
         let first = Label::new();
         #[rustfmt::skip]
@@ -1048,6 +1141,11 @@ mod tests {
             // A range that ends at -1.
             .L32(0xffff_ffff).L32(0x0000_0000)
             .L32(0).L32(0xffff_ffff)
+            // A normal range with tombstone.
+            .L32(tombstone).L32(tombstone)
+            // A base address selection with tombstone followed by a normal range.
+            .L32(0xffff_ffff).L32(tombstone)
+            .L32(0x10a00).L32(0x10b00)
             // A range end.
             .L32(0).L32(0)
             // Some extra data.
@@ -1139,6 +1237,7 @@ mod tests {
 
     #[test]
     fn test_ranges_64() {
+        let tombstone = !0u64 - 1;
         let start = Label::new();
         let first = Label::new();
         #[rustfmt::skip]
@@ -1160,6 +1259,11 @@ mod tests {
             // A range that ends at -1.
             .L64(0xffff_ffff_ffff_ffff).L64(0x0000_0000)
             .L64(0).L64(0xffff_ffff_ffff_ffff)
+            // A normal range with tombstone.
+            .L64(tombstone).L64(tombstone)
+            // A base address selection with tombstone followed by a normal range.
+            .L64(0xffff_ffff_ffff_ffff).L64(tombstone)
+            .L64(0x10a00).L64(0x10b00)
             // A range end.
             .L64(0).L64(0)
             // Some extra data.

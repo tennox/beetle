@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "xtaskops"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["Dotan Nahum <dotan@rng0.io>"]
 description = "Goodies for working with the xtask concept"
 documentation = "https://docs.rs/xtaskops"

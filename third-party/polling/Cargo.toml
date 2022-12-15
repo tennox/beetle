@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.47"
 name = "polling"
-version = "2.5.1"
+version = "2.5.2"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
 description = "Portable interface to epoll, kqueue, event ports, and wepoll"

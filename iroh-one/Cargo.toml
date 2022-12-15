@@ -6,12 +6,12 @@ name = "iroh-one"
 readme = "README.md"
 repository = "https://github.com/n0-computer/iroh"
 version = "0.1.3"
-rust-version = "1.63"
+rust-version = "1.65"
 
 [dependencies]
 android_logger = "0.11"
 log = "0.4"
-anyhow = "1"
+anyhow = { version = "1", features = ["backtrace"] }
 async-trait = "0.1.56"
 axum = "0.5.1"
 bytes = "1.1"
@@ -24,11 +24,12 @@ http-serde = "1.1.0"
 hyper = "0.14.19"
 iroh-gateway = { version = "0.1.3", path = "../iroh-gateway" }
 iroh-metrics = { version = "0.1.3", path = "../iroh-metrics", default-features = false }
-iroh-p2p = { version = "0.1.3", path = "../iroh-p2p", default-features = false, features = ["rpc-mem"] }
+iroh-p2p = { version = "0.1.3", path = "../iroh-p2p", default-features = false }
 iroh-resolver = { version = "0.1.3", path = "../iroh-resolver" }
+iroh-unixfs = { version = "0.1.3", path = "../iroh-unixfs" }
 iroh-rpc-client = { version = "0.1.3", path = "../iroh-rpc-client", default-features = false }
 iroh-rpc-types = { version = "0.1.3", path = "../iroh-rpc-types", default-features = false }
-iroh-store = { version = "0.1.3", path = "../iroh-store", default-features = false, features = ["rpc-mem"] }
+iroh-store = { version = "0.1.3", path = "../iroh-store", default-features = false }
 iroh-util = { version = "0.1.3", path = "../iroh-util" }
 reqwest = { version = "0.11", features = ["rustls-tls"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
@@ -40,7 +41,4 @@ tracing = "0.1.33"
 http = "0.2"
 
 [features]
-default = ["rpc-mem", "rpc-grpc"]
 http-uds-gateway = ["tempfile"]
-rpc-grpc = ["iroh-rpc-types/grpc", "iroh-rpc-client/grpc", "iroh-metrics/rpc-grpc"]
-rpc-mem = ["iroh-rpc-types/mem", "iroh-rpc-client/mem"]

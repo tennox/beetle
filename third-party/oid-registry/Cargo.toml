@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "oid-registry"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Pierre Chifflier <chifflier@wzdftpd.net>"]
 build = "build.rs"
 include = [

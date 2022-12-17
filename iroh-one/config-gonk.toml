@@ -9,7 +9,7 @@ gateway_addr = "grpc:///dev/socket/iroh-one-rpc"
 cache = false
 denylist = false
 fetch = false
-http_resolvers = ['dweb.link']
+http_resolvers = ['4everland.io', 'storry.tv', 'dweb.link']
 port = 0
 writeable = true
 

@@ -13,7 +13,6 @@ use bytes::Bytes;
 use cid::{multibase::Base, Cid};
 use futures::future::Either;
 use iroh_rpc_client::Client;
-use rand::seq::SliceRandom;
 use reqwest::Url;
 use tracing::{debug, info, trace, warn};
 
@@ -133,16 +132,6 @@ impl FullLoader {
         })
     }
 
-    /// Fetch the next gateway url, if configured.
-    async fn next_gateway(&self) -> Option<&GatewayUrl> {
-        // TODO: maybe roundrobin?
-        if self.http_gateways.is_empty() {
-            return None;
-        }
-        let gw = self.http_gateways.choose(&mut rand::thread_rng()).unwrap();
-        Some(gw)
-    }
-
     async fn fetch_store(&self, cid: &Cid) -> Result<Option<LoadedCid>> {
         match self.client.try_store() {
             Ok(store) => Ok(store.get(*cid).await?.map(|data| LoadedCid {
@@ -182,27 +171,29 @@ impl FullLoader {
         }
     }
 
+    // Try to fetch the cid from one of the configured gateways.
     async fn fetch_gateway(&self, cid: &Cid) -> Result<Option<LoadedCid>> {
-        match self.next_gateway().await {
-            Some(url) => {
-                let response = reqwest::get(url.as_url(cid)?).await?;
-                // Filter out non http 200 responses.
-                if !response.status().is_success() {
-                    return Err(anyhow!("unexpected http status"));
-                }
-                let data = response.bytes().await?;
-                // Make sure the content is not tampered with.
-                if iroh_util::verify_hash(cid, &data) == Some(true) {
-                    Ok(Some(LoadedCid {
-                        data,
-                        source: Source::Http(url.as_string()),
-                    }))
-                } else {
-                    Err(anyhow!("invalid CID hash"))
-                }
+        let mut last_error = Ok(None);
+
+        for url in &self.http_gateways {
+            let response = reqwest::get(url.as_url(cid)?).await?;
+            if !response.status().is_success() {
+                last_error = Err(anyhow!("unexpected http status"));
+                continue;
             }
-            None => Ok(None),
+            let data = response.bytes().await?;
+            // Make sure the content is not tampered with.
+            if iroh_util::verify_hash(cid, &data) == Some(true) {
+                return Ok(Some(LoadedCid {
+                    data,
+                    source: Source::Http(url.as_string()),
+                }));
+            } else {
+                last_error = Err(anyhow!("invalid CID hash"));
+            }
         }
+
+        last_error
     }
 
     fn store_data(&self, cid: Cid, data: Bytes) {

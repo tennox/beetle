@@ -29,7 +29,6 @@ multihash.workspace = true
 num_enum.workspace = true
 once_cell.workspace = true
 prost.workspace = true
-rand.workspace = true
 reqwest = { workspace = true, features = ["rustls-tls", "json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

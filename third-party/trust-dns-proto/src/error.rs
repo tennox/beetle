@@ -28,6 +28,9 @@ use ring::error::Unspecified;
 use thiserror::Error;
 
 use crate::op::Header;
+
+#[cfg(feature = "dnssec")]
+use crate::rr::dnssec::rdata::tsig::TsigAlgorithm;
 use crate::rr::{Name, RecordType};
 use crate::serialize::binary::DecodeError;
 
@@ -237,6 +240,16 @@ pub enum ProtoErrorKind {
     #[error("request timed out")]
     Timeout,
 
+    /// Tsig key verification failed
+    #[error("Tsig key wrong key error")]
+    TsigWrongKey,
+
+    /// Tsig unsupported mac algorithm
+    /// Supported algorithm documented in `TsigAlgorithm::supported` function.
+    #[cfg(feature = "dnssec")]
+    #[error("Tsig unsupported mac algorithm")]
+    TsigUnsupportedMacAlgorithm(TsigAlgorithm),
+
     /// An url parsing error
     #[error("url parsing error")]
     UrlParsing(#[from] url::ParseError),
@@ -253,27 +266,27 @@ pub enum ProtoErrorKind {
     #[error("error parsing int")]
     ParseInt(#[from] std::num::ParseIntError),
 
-    /// A Quinn (Quic) connection error occured
+    /// A Quinn (Quic) connection error occurred
     #[cfg(feature = "quinn")]
     #[error("error creating quic connection: {0}")]
     QuinnConnect(#[from] quinn::ConnectError),
 
-    /// A Quinn (QUIC) connection error occured
+    /// A Quinn (QUIC) connection error occurred
     #[cfg(feature = "quinn")]
     #[error("error with quic connection: {0}")]
     QuinnConnection(#[from] quinn::ConnectionError),
 
-    /// A Quinn (QUIC) write error occured
+    /// A Quinn (QUIC) write error occurred
     #[cfg(feature = "quinn")]
     #[error("error writing to quic connection: {0}")]
     QuinnWriteError(#[from] quinn::WriteError),
 
-    /// A Quinn (QUIC) read error occured
+    /// A Quinn (QUIC) read error occurred
     #[cfg(feature = "quinn")]
     #[error("error writing to quic read: {0}")]
     QuinnReadError(#[from] quinn::ReadExactError),
 
-    /// A Quinn (QUIC) configuration error occured
+    /// A Quinn (QUIC) configuration error occurred
     #[cfg(feature = "quinn")]
     #[error("error constructing quic configuration: {0}")]
     QuinnConfigError(#[from] quinn::ConfigError),
@@ -288,7 +301,7 @@ pub enum ProtoErrorKind {
     #[error("quic messages should always be 0, got: {0}")]
     QuicMessageIdNot0(u16),
 
-    /// A Rustls error occured
+    /// A Rustls error occurred
     #[cfg(feature = "rustls")]
     #[error("rustls construction error: {0}")]
     RustlsError(#[from] rustls::Error),
@@ -400,7 +413,7 @@ impl<T> From<sync::PoisonError<T>> for ProtoError {
 pub mod not_openssl {
     use std;
 
-    /// SslErrorStac stub
+    /// SslErrorStack stub
     #[derive(Clone, Copy, Debug)]
     pub struct SslErrorStack;
 
@@ -515,6 +528,9 @@ impl Clone for ProtoErrorKind {
             SSL(ref e) => Msg(format!("there was an SSL error: {}", e)),
             Timeout => Timeout,
             Timer => Timer,
+            #[cfg(feature = "dnssec")]
+            TsigUnsupportedMacAlgorithm(ref alg) => TsigUnsupportedMacAlgorithm(alg.clone()),
+            TsigWrongKey => TsigWrongKey,
             UrlParsing(ref e) => UrlParsing(*e),
             Utf8(ref e) => Utf8(*e),
             FromUtf8(ref e) => FromUtf8(e.clone()),

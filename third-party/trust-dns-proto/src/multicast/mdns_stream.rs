@@ -357,7 +357,7 @@ impl NextRandomUdpSocket {
 }
 
 impl Future for NextRandomUdpSocket {
-    // TODO: clean this up, the RandomUdpSocket shouldnt' care about the query type
+    // TODO: clean this up, the RandomUdpSocket shouldn't care about the query type
     type Output = io::Result<Option<std::net::UdpSocket>>;
 
     /// polls until there is an available next random UDP port.
@@ -371,7 +371,7 @@ impl Future for NextRandomUdpSocket {
         } else if self.mdns_query_type.bind_on_5353() {
             let addr = SocketAddr::new(self.bind_address, MDNS_PORT);
             debug!("binding sending stream to {}", addr);
-            let socket = std::net::UdpSocket::bind(&addr)?;
+            let socket = std::net::UdpSocket::bind(addr)?;
             let socket = self.prepare_sender(socket)?;
 
             Poll::Ready(Ok(Some(socket)))
@@ -400,7 +400,7 @@ impl Future for NextRandomUdpSocket {
                 let addr = SocketAddr::new(self.bind_address, port);
                 debug!("binding sending stream to {}", addr);
 
-                match std::net::UdpSocket::bind(&addr) {
+                match std::net::UdpSocket::bind(addr) {
                     Ok(socket) => {
                         let socket = self.prepare_sender(socket)?;
                         return Poll::Ready(Ok(Some(socket)));

@@ -3016,6 +3016,7 @@ dependencies = [
  "iroh-store",
  "iroh-unixfs",
  "iroh-util",
+ "log",
  "reqwest",
  "serde",
  "tempfile",

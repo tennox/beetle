@@ -2,8 +2,8 @@
 
 gateway_uds_path = '/tmp/ipfsd.http'
 
-[rpc_client]
-gateway_addr = "grpc:///tmp/iroh-one-rpc"
+# [rpc_client]
+# gateway_addr = "grpc:///tmp/iroh-one-rpc"
 
 [gateway]
 cache = false

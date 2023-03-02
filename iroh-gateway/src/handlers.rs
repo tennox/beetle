@@ -355,11 +355,8 @@ pub async fn path_handler<T: ContentLoader + Unpin>(
 #[tracing::instrument(skip(state))]
 pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
     Extension(state): Extension<Arc<State<T>>>,
-    // Path(params): Path<HashMap<String, String>>,
-    // Query(query_params): Query<GetParams>,
-    // method: http::Method,
+    request_headers: HeaderMap,
     http_req: HttpRequest<Body>,
-    // request_headers: HeaderMap,
 ) -> Result<GatewayResponse, GatewayError> {
     // If this gateway is not writable, return a 400 error.
     if !state.config.writeable_gateway() {
@@ -369,7 +366,13 @@ pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
         ));
     }
 
-    // TODO: check path & headers
+    // Check if a x-filename header has been set to the filename.
+    let mut file_name = "uploaded";
+    if let Some(header) = request_headers.get("x-filename") {
+        if let Ok(value) = header.to_str() {
+            file_name = value;
+        }
+    }
 
     // Helper to convert a anyhow::Error into a http error response.
     let into_gateway =
@@ -386,7 +389,7 @@ pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
         .client
         .resolver
         .loader
-        .store_file(reader)
+        .store_file(reader, file_name)
         .await
         .map_err(into_gateway)?;
     let location = format!("ipfs://{}", cid);

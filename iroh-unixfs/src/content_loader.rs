@@ -17,6 +17,7 @@ use reqwest::Url;
 use tracing::{debug, info, trace, warn};
 
 use crate::{
+    builder::FileBuilder,
     indexer::{Indexer, IndexerUrl},
     parse_links,
     types::{LoadedCid, Source},
@@ -36,6 +37,7 @@ pub trait ContentLoader: Sync + Send + std::fmt::Debug + Clone + 'static {
     async fn store_file<T: tokio::io::AsyncRead + 'static + std::marker::Send>(
         &self,
         _content: T,
+        _file_name: &str,
     ) -> Result<cid::Cid, anyhow::Error> {
         unimplemented!()
     }
@@ -58,8 +60,9 @@ impl<T: ContentLoader> ContentLoader for Arc<T> {
     async fn store_file<C: tokio::io::AsyncRead + 'static + std::marker::Send>(
         &self,
         content: C,
+        file_name: &str,
     ) -> Result<cid::Cid, anyhow::Error> {
-        self.as_ref().store_file(content).await
+        self.as_ref().store_file(content, file_name).await
     }
 }
 
@@ -281,22 +284,24 @@ impl ContentLoader for FullLoader {
         self.client.try_store()?.has(*cid).await
     }
 
+    // Stores a file and returns the root cid for the stored content.
     async fn store_file<T: tokio::io::AsyncRead + 'static + std::marker::Send>(
         &self,
         content: T,
+        file_name: &str,
     ) -> Result<cid::Cid, anyhow::Error> {
-        use crate::builder::FileBuilder;
         use futures::StreamExt;
 
         let store = self.client.try_store()?;
 
         let file_builder = FileBuilder::new()
             .content_reader(content)
-            .name("_http_upload_");
+            .name(file_name);
         let file = file_builder.build().await?;
+        let directory = file.wrap();
 
         let mut cids: Vec<cid::Cid> = vec![];
-        let mut blocks = Box::pin(file.encode().await?);
+        let mut blocks = directory.encode();
         while let Some(block) = blocks.next().await {
             let (cid, bytes, links) = block.unwrap().into_parts();
             cids.push(cid);

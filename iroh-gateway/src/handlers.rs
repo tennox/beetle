@@ -403,7 +403,15 @@ pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
             .await
             .map_err(into_gateway)?
     };
-    let location = format!("ipfs://{}", cid);
+    let location = format!(
+        "ipfs://{}{}",
+        cid,
+        if file_name.is_empty() {
+            "".to_owned()
+        } else {
+            format!("/{}", file_name)
+        }
+    );
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -453,7 +461,7 @@ pub async fn post_multipart_handler<T: ContentLoader + std::marker::Unpin>(
         .store_files(files)
         .await
         .map_err(into_gateway)?;
-    let location = format!("ipfs://{}", cid);
+    let location = format!("ipfs://{}/", cid);
 
     let mut headers = HeaderMap::new();
     headers.insert(

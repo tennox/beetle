@@ -4,7 +4,7 @@ use axum::routing::any;
 use axum::{
     body::Body,
     error_handling::HandleErrorLayer,
-    extract::{Extension, Path as AxumPath, Query},
+    extract::{Extension, Multipart, Path as AxumPath, Query},
     http::{header::*, Request as HttpRequest, StatusCode},
     middleware,
     response::IntoResponse,
@@ -90,7 +90,8 @@ pub fn get_app_routes<T: ContentLoader + Unpin>(state: &Arc<State<T>>) -> Router
         .route("/icons.css", get(stylesheet_icons))
         .route("/style.css", get(stylesheet_main))
         .route("/info", get(info))
-        .route("/:scheme/", post(post_handler::<T>));
+        .route("/:scheme/", post(post_handler::<T>))
+        .route("/:scheme/multipart", post(post_multipart_handler::<T>));
 
     let subdomain_router = Router::new()
         .route("/*content_path", get(subdomain_handler::<T>))
@@ -367,7 +368,7 @@ pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
     }
 
     // Check if a x-filename header has been set to the filename.
-    let mut file_name = "uploaded";
+    let mut file_name = "";
     if let Some(header) = request_headers.get("x-filename") {
         if let Ok(value) = header.to_str() {
             file_name = value;
@@ -385,11 +386,71 @@ pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
     .into_async_read();
     let reader = tokio_util::compat::FuturesAsyncReadCompatExt::compat(futures_async_read);
 
+    let cid = if file_name.is_empty() {
+        state
+            .client
+            .resolver
+            .loader
+            .store_file(reader)
+            .await
+            .map_err(into_gateway)?
+    } else {
+        state
+            .client
+            .resolver
+            .loader
+            .store_files(vec![(reader, file_name.into())])
+            .await
+            .map_err(into_gateway)?
+    };
+    let location = format!("ipfs://{}", cid);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "IPFS-Hash",
+        HeaderValue::from_str(&cid.to_string()).unwrap(),
+    );
+    Ok(GatewayResponse::created(&location, headers))
+}
+
+#[tracing::instrument(skip(state))]
+pub async fn post_multipart_handler<T: ContentLoader + std::marker::Unpin>(
+    Extension(state): Extension<Arc<State<T>>>,
+    request_headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<GatewayResponse, GatewayError> {
+    // If this gateway is not writable, return a 400 error.
+    if !state.config.writeable_gateway() {
+        return Err(GatewayError::new(
+            StatusCode::BAD_REQUEST,
+            "Not a writable gateway",
+        ));
+    }
+
+    // Helper to convert a anyhow::Error into a http error response.
+    let into_gateway =
+        |err: anyhow::Error| GatewayError::new(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string());
+
+    // Get the first file from the multipart request.
+    let mut files = vec![];
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let name = field.file_name().unwrap().to_string();
+        let data = field.bytes().await.unwrap();
+        files.push((crate::bytes_reader::BytesReader::new(data), name));
+    }
+
+    if files.is_empty() {
+        return Err(GatewayError::new(
+            StatusCode::BAD_REQUEST,
+            "No multipart files found.",
+        ));
+    }
+
     let cid = state
         .client
         .resolver
         .loader
-        .store_file(reader, file_name)
+        .store_files(files)
         .await
         .map_err(into_gateway)?;
     let location = format!("ipfs://{}", cid);

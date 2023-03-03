@@ -755,8 +755,8 @@ pub struct Config {
     pub chunker: Option<ChunkerConfig>,
 }
 
-#[async_recursion(?Send)]
-async fn make_dir_from_path<P: Into<PathBuf>>(
+#[async_recursion]
+async fn make_dir_from_path<P: Into<PathBuf> + std::marker::Send>(
     path: P,
     chunker: Chunker,
     degree: usize,

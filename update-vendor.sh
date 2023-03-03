@@ -3,9 +3,9 @@
 set -e
 
 rm -rf third-party/*
-rm .cargo/config.toml
+rm -f .cargo/config.toml
 
-rm Cargo.lock
+rm -f Cargo.lock
 
 cargo clean
 cargo update $@

@@ -1,4 +1,5 @@
 pub mod bad_bits;
+mod bytes_reader;
 pub mod cli;
 pub mod client;
 pub mod config;

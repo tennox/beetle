@@ -7,6 +7,7 @@ function setup_xcompile_envs() {
     export TARGET_ARCH=${TARGET_ARCH:-armv7-linux-androideabi}
     export ANDROID_API=${ANDROID_API:-33}
     export ANDROID_PLATFORM=${ANDROID_PLATFORM:-android-33}
+    export SDKROOT=${OSX_CROSS}/MacOSX11.0.sdk/
     LIB_SUFFIX=""
     IS_MACOS=0
 

@@ -85,6 +85,9 @@ pub struct Config {
     /// set of user provided headers to attach to all responses
     #[serde(with = "http_serde::header_map")]
     pub headers: HeaderMap,
+    /// flag to toggle the capability to POST and PUT content to the http endpoint.
+    #[serde(default)]
+    pub writeable: bool,
     /// Redirects to subdomains for path requests
     #[serde(default)]
     pub redirect_to_subdomain: bool,
@@ -101,6 +104,7 @@ impl Config {
             dns_resolver: DnsResolverConfig::default(),
             indexer_endpoint: None,
             use_denylist: false,
+            writeable: false,
             redirect_to_subdomain: false,
         }
     }
@@ -177,6 +181,7 @@ impl Default for Config {
             dns_resolver: DnsResolverConfig::default(),
             indexer_endpoint: None,
             use_denylist: false,
+            writeable: false,
             redirect_to_subdomain: false,
         };
         t.set_default_headers();
@@ -206,6 +211,7 @@ impl Source for Config {
         if let Some(indexer_endpoint) = &self.indexer_endpoint {
             insert_into_config_map(&mut map, "indexer_endpoint", indexer_endpoint.clone());
         }
+        insert_into_config_map(&mut map, "writeable", self.writeable);
         Ok(map)
     }
 }
@@ -225,6 +231,10 @@ impl crate::handlers::StateConfig for Config {
 
     fn user_headers(&self) -> &HeaderMap<HeaderValue> {
         &self.headers
+    }
+
+    fn writeable_gateway(&self) -> bool {
+        self.writeable
     }
 
     fn redirect_to_subdomain(&self) -> bool {

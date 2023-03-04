@@ -45,6 +45,8 @@ pub enum Directory {
     Hamt(HamtDirectory),
 }
 
+unsafe impl Send for Directory {}
+
 /// A basic / flat directory
 #[derive(Debug, PartialEq)]
 pub struct BasicDirectory {
@@ -114,7 +116,7 @@ impl Directory {
 
 impl BasicDirectory {
     pub fn encode<'a>(self) -> BoxStream<'a, Result<Block>> {
-        async_stream::try_stream! {
+        let res = async_stream::try_stream! {
             let mut links = Vec::new();
             for entry in self.entries {
                 let name = entry.name().to_string();
@@ -142,8 +144,8 @@ impl BasicDirectory {
             let outer = encode_unixfs_pb(&inner, links)?;
             let node = UnixfsNode::Directory(Node { outer, inner });
             yield node.encode()?;
-        }
-        .boxed()
+        };
+        Box::pin(res)
     }
 }
 
@@ -154,9 +156,11 @@ impl HamtDirectory {
 }
 
 enum Content {
-    Reader(Pin<Box<dyn AsyncRead + Send>>),
+    Reader(Pin<Box<dyn AsyncRead + std::marker::Send>>),
     Path(PathBuf),
 }
+
+unsafe impl Send for Content {}
 
 impl Debug for Content {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -185,6 +189,8 @@ pub struct File {
     tree_builder: TreeBuilder,
     chunker: Chunker,
 }
+
+unsafe impl Send for File {}
 
 impl Debug for File {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -281,7 +287,7 @@ impl Symlink {
 pub struct FileBuilder {
     name: Option<String>,
     path: Option<PathBuf>,
-    reader: Option<Pin<Box<dyn AsyncRead + Send>>>,
+    reader: Option<Pin<Box<dyn AsyncRead + std::marker::Send>>>,
     chunker: Chunker,
     degree: usize,
 }
@@ -314,6 +320,8 @@ impl Debug for FileBuilder {
             .finish()
     }
 }
+
+unsafe impl Send for FileBuilder {}
 
 /// FileBuilder separates uses a reader or bytes to chunk the data into raw unixfs nodes
 impl FileBuilder {
@@ -359,7 +367,10 @@ impl FileBuilder {
         self
     }
 
-    pub fn content_reader<T: AsyncRead + Send + 'static>(mut self, content: T) -> Self {
+    pub fn content_reader<T: tokio::io::AsyncRead + std::marker::Send + 'static>(
+        mut self,
+        content: T,
+    ) -> Self {
         self.reader = Some(Box::pin(content));
         self
     }
@@ -421,9 +432,9 @@ impl Entry {
 
     pub async fn encode(self) -> Result<BoxStream<'static, Result<Block>>> {
         Ok(match self {
-            Entry::File(f) => f.encode().await?.boxed(),
+            Entry::File(f) => Box::pin(f.encode().await?),
             Entry::Directory(d) => d.encode(),
-            Entry::Symlink(s) => stream::iter(Some(s.encode())).boxed(),
+            Entry::Symlink(s) => Box::pin(stream::iter(Some(s.encode()))),
         })
     }
 
@@ -640,7 +651,7 @@ impl HamtNode {
     pub fn encode<'a>(self) -> BoxStream<'a, Result<Block>> {
         match self {
             Self::Branch(tree) => {
-                async_stream::try_stream! {
+                let res = async_stream::try_stream! {
                     let mut links = Vec::with_capacity(tree.len());
                     let mut bitfield = Bitfield::default();
                     for (prefix, node) in tree {
@@ -672,12 +683,14 @@ impl HamtNode {
                     // it is not raw. The type of the node will be HamtShard from above.
                     let node = UnixfsNode::Directory(crate::unixfs::Node { outer, inner });
                     yield node.encode()?;
-                }
-                .boxed()
+                };
+
+                Box::pin(res)
             }
-            Self::Leaf(HamtLeaf(_hash, entry)) => async move { entry.encode().await }
-                .try_flatten_stream()
-                .boxed(),
+            Self::Leaf(HamtLeaf(_hash, entry)) => {
+                let res = async move { entry.encode().await }.try_flatten_stream();
+                Box::pin(res)
+            }
         }
     }
 }
@@ -742,8 +755,8 @@ pub struct Config {
     pub chunker: Option<ChunkerConfig>,
 }
 
-#[async_recursion(?Send)]
-async fn make_dir_from_path<P: Into<PathBuf>>(
+#[async_recursion]
+async fn make_dir_from_path<P: Into<PathBuf> + std::marker::Send>(
     path: P,
     chunker: Chunker,
     degree: usize,

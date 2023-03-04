@@ -88,6 +88,8 @@ pub fn iroh_config_path(file_name: &str) -> Result<PathBuf> {
 /// | Linux    | `$XDG_DATA_HOME`/iroh or `$HOME`/.local/share/iroh | /home/alice/.local/share/iroh                 |
 /// | macOS    | `$HOME`/Library/Application Support/iroh      | /Users/Alice/Library/Application Support/iroh |
 /// | Windows  | `{FOLDERID_RoamingAppData}/iroh`              | C:\Users\Alice\AppData\Roaming\iroh           |
+/// | Android  | `/data/local`                                 |                                          |
+#[cfg(not(target_os = "android"))]
 pub fn iroh_data_root() -> Result<PathBuf> {
     if let Some(val) = env::var_os("IROH_DATA_DIR") {
         return Ok(PathBuf::from(val));
@@ -96,6 +98,11 @@ pub fn iroh_data_root() -> Result<PathBuf> {
         anyhow!("operating environment provides no directory for application data")
     })?;
     Ok(path.join(IROH_DIR))
+}
+
+#[cfg(target_os = "android")]
+pub fn iroh_data_root() -> Result<PathBuf> {
+    Ok(PathBuf::from("/data/local").join(&IROH_DIR))
 }
 
 /// Path that leads to a file in the iroh data directory.

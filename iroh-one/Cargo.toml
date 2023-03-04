@@ -10,15 +10,11 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 axum.workspace = true
-bytes.workspace = true
 cid.workspace = true
 clap = { workspace = true, features = ["derive"] }
 config.workspace = true
 futures.workspace = true
-headers.workspace = true
-http-serde.workspace = true
 hyper.workspace = true
 iroh-gateway.workspace = true
 iroh-metrics.workspace = true
@@ -34,6 +30,10 @@ serde = { workspace = true, features = ["derive"] }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process"] }
 tracing.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger.workspace = true
+log = "0.4"
 
 [dev-dependencies]
 http.workspace = true

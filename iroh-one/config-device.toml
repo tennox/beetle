@@ -1,0 +1,41 @@
+# iroh-one device configuration
+
+gateway_uds_path = '/dev/socket/ipfsd.http'
+
+# [rpc_client]
+# gateway_addr = "grpc:///dev/socket/iroh-one-rpc"
+
+[gateway]
+cache = false
+denylist = false
+fetch = false
+http_resolvers = ['dweb.link']
+port = 0
+writeable = true
+
+[gateway.headers]
+accept-ranges = 'none'
+access-control-allow-headers = 'location, content-type, content-disposition, last-modified, cache-control, accept-ranges, etag, service-worker, x-ipfs-gateway-prefix, x-trace-id, x-content-type-options, x-ipfs-path, x-ipfs-roots'
+access-control-allow-methods = 'GET, PUT, POST, DELETE, HEAD, OPTIONS'
+access-control-allow-origin = '*'
+
+[store]
+path = '/data/local/service/ipfsd/iroh-store'
+
+[p2p.libp2p]
+autonat = false
+bootstrap_peers = []
+connection_event_buffer_size = 256
+dial_concurrency_factor = 16
+gossipsub = false
+kademlia = false
+listening_multiaddr = '/ip4/0.0.0.0/tcp/4444'
+max_conns_in = 256
+max_conns_out = 256
+max_conns_pending_in = 256
+max_conns_pending_out = 256
+max_conns_per_peer = 8
+mdns = true
+notify_handler_buffer_size = 256
+relay_client = true
+relay_server = true

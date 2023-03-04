@@ -7,6 +7,7 @@ pub mod hamt;
 pub mod indexer;
 mod types;
 pub mod unixfs;
+mod uploads;
 
 pub use crate::types::{Block, Link, LinkRef, Links, LoadedCid, PbLinks, Source};
 

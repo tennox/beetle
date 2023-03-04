@@ -4,28 +4,43 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use iroh_gateway::{bad_bits::BadBits, core::Core, metrics};
+#[cfg(not(target_os = "android"))]
+use iroh_one::config::CONFIG_FILE_NAME;
 #[cfg(all(feature = "http-uds-gateway", unix))]
 use iroh_one::uds;
 use iroh_one::{
     cli::Args,
-    config::{Config, CONFIG_FILE_NAME, ENV_PREFIX},
+    config::{Config, ENV_PREFIX},
 };
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_types::Addr;
+#[cfg(not(target_os = "android"))]
+use iroh_util::iroh_config_path;
 use iroh_unixfs::content_loader::{FullLoader, FullLoaderConfig};
 use iroh_util::lock::ProgramLock;
-use iroh_util::{iroh_config_path, make_config};
+use iroh_util::make_config;
 use tokio::sync::RwLock;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    #[cfg(target_os = "android")]
+    android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Debug));
+
     let mut lock = ProgramLock::new("iroh-one")?;
     lock.acquire_or_exit();
 
     let args = Args::parse();
 
+    #[cfg(not(target_os = "android"))]
     let cfg_path = iroh_config_path(CONFIG_FILE_NAME)?;
+    #[cfg(not(target_os = "android"))]
     let sources = [Some(cfg_path.as_path()), args.cfg.as_deref()];
+
+    // Don't try to use the "system default" config path on Android since it's not supported by the
+    // `dirs_next` crate.
+    #[cfg(target_os = "android")]
+    let sources = [args.cfg.as_deref()];
+
     let mut config = make_config(
         // default
         Config::default(),
@@ -60,6 +75,14 @@ async fn main() -> Result<()> {
         let p2p_rpc = iroh_one::mem_p2p::start(p2p_recv, config.p2p.clone()).await?;
         (store_rpc, p2p_rpc)
     };
+
+    #[cfg(not(feature = "http-uds-gateway"))]
+    {
+        if config.gateway.port == 0 {
+            println!("Neither listening on an HTTP port, nor using UDS: check your configuration!");
+            return Ok(());
+        }
+    }
 
     config.metrics = metrics::metrics_config_with_compile_time_info(config.metrics);
     println!("{config:#?}");
@@ -97,15 +120,20 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    let handler = Core::new_with_state(gateway_rpc_addr, Arc::clone(&shared_state)).await?;
-
     let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config)
         .await
         .expect("failed to initialize metrics");
-    let server = handler.server();
-    println!("HTTP endpoint listening on {}", server.local_addr());
+
+    let shared_state2 = Arc::clone(&shared_state);
     let core_task = tokio::spawn(async move {
-        server.await.unwrap();
+        let handler = Core::new_with_state(gateway_rpc_addr, Arc::clone(&shared_state2))
+            .await
+            .unwrap();
+        if config.gateway.port != 0 {
+            let server = handler.server();
+            println!("HTTP endpoint listening on {}", server.local_addr());
+            server.await.unwrap();
+        }
     });
 
     #[cfg(all(feature = "http-uds-gateway", unix))]

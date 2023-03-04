@@ -173,6 +173,7 @@ wasm-timer = "0.2.5"
 which = "4.3.0"
 xtaskops = "0.3"
 zeroize = "1.4"
+android_logger = "0.11"
 
 [profile.optimized-release]
 inherits = 'release'
@@ -194,3 +195,9 @@ incremental = false
 
 [workspace.metadata.release]
 consolidate-commits = true
+
+[patch.crates-io]
+wasm-timer = { git = "https://github.com/capyloon/wasm-timer.git" }
+trust-dns-proto = { git = "https://github.com/bluejekyll/trust-dns.git" }
+quicksink = { git = "https://github.com/capyloon/quicksink.git" }
+soketto = { git = "https://github.com/capyloon/soketto.git" }

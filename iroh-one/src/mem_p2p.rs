@@ -8,7 +8,11 @@ use tracing::error;
 
 /// Starts a new p2p node, using the given mem rpc channel.
 pub async fn start(rpc_addr: P2pAddr, config: Config) -> anyhow::Result<JoinHandle<()>> {
+    #[cfg(not(target_os = "android"))]
     let kc = Keychain::<DiskStorage>::new(config.key_store_path.clone()).await?;
+
+    #[cfg(target_os = "android")]
+    let kc = Keychain::<DiskStorage>::with_root("/data/local/service/ipfsd".into()).await?;
 
     let mut p2p = Node::new(config, rpc_addr, kc).await?;
 

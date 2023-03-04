@@ -105,6 +105,8 @@ impl<'a> Debug for ChunkerStream<'a> {
     }
 }
 
+unsafe impl<'a> Send for ChunkerStream<'a> {}
+
 impl<'a> Stream for ChunkerStream<'a> {
     type Item = io::Result<Bytes>;
 

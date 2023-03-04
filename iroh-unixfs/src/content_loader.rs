@@ -12,15 +12,17 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use cid::{multibase::Base, Cid};
 use futures::future::Either;
+use futures::StreamExt;
 use iroh_rpc_client::Client;
-use rand::seq::SliceRandom;
 use reqwest::Url;
 use tracing::{debug, info, trace, warn};
 
 use crate::{
+    builder::FileBuilder,
     indexer::{Indexer, IndexerUrl},
     parse_links,
     types::{LoadedCid, Source},
+    uploads::make_dir_from_file_list,
 };
 
 pub const IROH_STORE: &str = "iroh-store";
@@ -33,6 +35,21 @@ pub trait ContentLoader: Sync + Send + std::fmt::Debug + Clone + 'static {
     async fn stop_session(&self, ctx: ContextId) -> Result<()>;
     /// Checks if the given cid is present in the local storage.
     async fn has_cid(&self, cid: &Cid) -> Result<bool>;
+    /// Store multiple files as a single unixFS directory
+    async fn store_files<T: tokio::io::AsyncRead + 'static + std::marker::Send>(
+        &self,
+        _entries: Vec<(T, String)>,
+    ) -> Result<cid::Cid, anyhow::Error> {
+        unimplemented!()
+    }
+
+    /// Store a single file
+    async fn store_file<T: tokio::io::AsyncRead + 'static + std::marker::Send>(
+        &self,
+        _file: T,
+    ) -> Result<cid::Cid, anyhow::Error> {
+        unimplemented!()
+    }
 }
 
 #[async_trait]
@@ -47,6 +64,20 @@ impl<T: ContentLoader> ContentLoader for Arc<T> {
 
     async fn has_cid(&self, cid: &Cid) -> Result<bool> {
         self.as_ref().has_cid(cid).await
+    }
+
+    async fn store_files<C: tokio::io::AsyncRead + 'static + std::marker::Send>(
+        &self,
+        entries: Vec<(C, String)>,
+    ) -> Result<cid::Cid, anyhow::Error> {
+        self.as_ref().store_files(entries).await
+    }
+
+    async fn store_file<C: tokio::io::AsyncRead + 'static + std::marker::Send>(
+        &self,
+        file: C,
+    ) -> Result<cid::Cid, anyhow::Error> {
+        self.as_ref().store_file(file).await
     }
 }
 
@@ -119,16 +150,6 @@ impl FullLoader {
         })
     }
 
-    /// Fetch the next gateway url, if configured.
-    async fn next_gateway(&self) -> Option<&GatewayUrl> {
-        // TODO: maybe roundrobin?
-        if self.http_gateways.is_empty() {
-            return None;
-        }
-        let gw = self.http_gateways.choose(&mut rand::thread_rng()).unwrap();
-        Some(gw)
-    }
-
     async fn fetch_store(&self, cid: &Cid) -> Result<Option<LoadedCid>> {
         match self.client.try_store() {
             Ok(store) => Ok(store.get(*cid).await?.map(|data| LoadedCid {
@@ -168,27 +189,29 @@ impl FullLoader {
         }
     }
 
+    // Try to fetch the cid from one of the configured gateways.
     async fn fetch_gateway(&self, cid: &Cid) -> Result<Option<LoadedCid>> {
-        match self.next_gateway().await {
-            Some(url) => {
-                let response = reqwest::get(url.as_url(cid)?).await?;
-                // Filter out non http 200 responses.
-                if !response.status().is_success() {
-                    return Err(anyhow!("unexpected http status"));
-                }
-                let data = response.bytes().await?;
-                // Make sure the content is not tampered with.
-                if iroh_util::verify_hash(cid, &data) == Some(true) {
-                    Ok(Some(LoadedCid {
-                        data,
-                        source: Source::Http(url.as_string()),
-                    }))
-                } else {
-                    Err(anyhow!("invalid CID hash"))
-                }
+        let mut last_error = Ok(None);
+
+        for url in &self.http_gateways {
+            let response = reqwest::get(url.as_url(cid)?).await?;
+            if !response.status().is_success() {
+                last_error = Err(anyhow!("unexpected http status"));
+                continue;
             }
-            None => Ok(None),
+            let data = response.bytes().await?;
+            // Make sure the content is not tampered with.
+            if iroh_util::verify_hash(cid, &data) == Some(true) {
+                return Ok(Some(LoadedCid {
+                    data,
+                    source: Source::Http(url.as_string()),
+                }));
+            } else {
+                last_error = Err(anyhow!("invalid CID hash"));
+            }
         }
+
+        last_error
     }
 
     fn store_data(&self, cid: Cid, data: Bytes) {
@@ -290,6 +313,65 @@ impl ContentLoader for FullLoader {
 
     async fn has_cid(&self, cid: &Cid) -> Result<bool> {
         self.client.try_store()?.has(*cid).await
+    }
+
+    // Store a single file and returns the root cid for the stored content.
+    async fn store_file<T: tokio::io::AsyncRead + 'static + std::marker::Send>(
+        &self,
+        content: T,
+    ) -> Result<cid::Cid, anyhow::Error> {
+        let store = self.client.try_store()?;
+
+        let file_builder = FileBuilder::new()
+            .content_reader(content)
+            .name("_http_upload_");
+        let file = file_builder.build().await?;
+
+        let mut cids: Vec<cid::Cid> = vec![];
+        let mut blocks = Box::pin(file.encode().await?);
+        while let Some(block) = blocks.next().await {
+            let (cid, bytes, links) = block.unwrap().into_parts();
+            cids.push(cid);
+            store.put(cid, bytes, links).await?;
+        }
+
+        match cids.last() {
+            Some(root_cid) => {
+                // This fails if Kademlia is not enabled, which can be the case
+                // and it's ok.
+                let _ = self.client.try_p2p()?.start_providing(&root_cid).await;
+                Ok(*root_cid)
+            }
+            None => Err(anyhow!("no root cid!")),
+        }
+    }
+
+    // Store a set of file and returns the root cid for the stored content.
+    async fn store_files<T: tokio::io::AsyncRead + 'static + std::marker::Send>(
+        &self,
+        entries: Vec<(T, String)>,
+    ) -> Result<cid::Cid, anyhow::Error> {
+        let store = self.client.try_store()?;
+        let mut cids: Vec<cid::Cid> = vec![];
+
+        let directory = make_dir_from_file_list(entries).await?;
+
+        let mut blocks = directory.encode();
+        while let Some(block) = blocks.next().await {
+            let (cid, bytes, links) = block.unwrap().into_parts();
+            cids.push(cid);
+            store.put(cid, bytes, links).await?;
+        }
+
+        match cids.last() {
+            Some(root_cid) => {
+                // This fails if Kademlia is not enabled, which can be the case
+                // and it's ok.
+                let _ = self.client.try_p2p()?.start_providing(&root_cid).await;
+                Ok(*root_cid)
+            }
+            None => Err(anyhow!("no root cid!")),
+        }
     }
 }
 

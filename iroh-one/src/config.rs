@@ -165,6 +165,10 @@ impl iroh_gateway::handlers::StateConfig for Config {
         &self.gateway.headers
     }
 
+    fn writeable_gateway(&self) -> bool {
+        self.gateway.writeable
+    }
+
     fn redirect_to_subdomain(&self) -> bool {
         self.gateway.redirect_to_subdomain
     }

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Uploading to IPFS</title>
+  </head>
+  <script>
+    function log(arg1, arg2) {
+      let out = document.getElementById("result");
+      let item = document.createElement("pre");
+      item.textContent = `${arg1} ${arg2 || ""}`;
+      out.append(item);
+      console.log(arg1, arg2);
+    }
+
+    async function upload() {
+      let content = document.getElementById("content").value;
+      log(`Will upload ${content}`);
+      try {
+        // const url = "ipfs://localhost/ipfs/";
+        const url = "http://localhost:9050/ipfs/";
+
+        const body = new Blob([content]);
+
+        let headers = new Headers();
+        if (document.getElementById("wrap").checked) {
+          console.log(`wrapping in directory with filename content.txt`);
+          headers.append("X-Filename", "content.txt");
+        }
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body,
+        });
+        log(response.status, response.statusText);
+        for (let header of response.headers) {
+          console.log(header);
+          if (header[0] == "location") {
+            let ipfsUrl = header[1];
+            console.log(`url is ${ipfsUrl}`);
+            let link = `http://localhost:9050/ipfs/${ipfsUrl.substring(7)}`;
+            console.log(link);
+          }
+        }
+      } catch (e) {
+        log(e);
+      }
+    }
+
+    async function uploadMulti() {
+      let content = document.getElementById("multipart").value;
+      log(`Will upload ${content}`);
+      try {
+        // const url = "ipfs://localhost/ipfs/multipart";
+        const url = "http://localhost:9050/ipfs/";
+
+        const body = new Blob([content]);
+
+        const size = 50000;
+        let a = [];
+        for (let i = 0; i < size; i++) {
+          a.push(i);
+        }
+        let array = new Blob([a]);
+        console.log(`Blob size ${array.size}`);
+
+        let form = new FormData();
+        form.append("first-field", body, "blobcontent.txt");
+        form.append("second-field", array, "some/array.txt");
+
+        const response = await fetch(url, {
+          method: "POST",
+          body: form,
+        });
+        log(response.status, response.statusText);
+        for (let header of response.headers) {
+          console.log(header);
+          if (header[0] == "location") {
+            let ipfsUrl = header[1];
+            console.log(`url is ${ipfsUrl}`);
+            let link = `http://localhost:9050/ipfs/${ipfsUrl.substring(7)}`;
+            console.log(link);
+          }
+        }
+      } catch (e) {
+        log(e);
+      }
+    }
+  </script>
+  <body>
+    <h1>IPFS Upload</h1>
+    <input id="content" placeholder="Something to upload..." />
+    <button onclick="upload()">Single part upload</button>
+    <label for="wrap">Wrap in directory</label>
+    <input type="checkbox" id="wrap" />
+
+    <h1>IPFS Mulitpart Upload</h1>
+    <input id="multipart" placeholder="Something to upload..." />
+    <button onclick="uploadMulti()">Multipart upload</button>
+
+    <div id="result"></div>
+  </body>
+</html>

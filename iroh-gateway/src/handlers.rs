@@ -4,7 +4,7 @@ use axum::routing::any;
 use axum::{
     body::Body,
     error_handling::HandleErrorLayer,
-    extract::{Extension, Multipart, Path as AxumPath, Query},
+    extract::{BodyStream, Extension, Multipart, Path as AxumPath, Query},
     http::{header::*, Request as HttpRequest, StatusCode},
     middleware,
     response::IntoResponse,
@@ -39,6 +39,7 @@ use tracing::info_span;
 use url::Url;
 use urlencoding::encode;
 
+use crate::extractor::MaybeMultipart;
 use crate::handler_params::{
     inlined_dns_link_to_dns_link, recode_path_to_inlined_dns_link, DefaultHandlerPathParams,
     GetParams, SubdomainHandlerPathParams,
@@ -90,8 +91,7 @@ pub fn get_app_routes<T: ContentLoader + Unpin>(state: &Arc<State<T>>) -> Router
         .route("/icons.css", get(stylesheet_icons))
         .route("/style.css", get(stylesheet_main))
         .route("/info", get(info))
-        .route("/:scheme/", post(post_handler::<T>))
-        .route("/:scheme/multipart", post(post_multipart_handler::<T>));
+        .route("/:scheme/", post(post_handler::<T>));
 
     let subdomain_router = Router::new()
         .route("/*content_path", get(subdomain_handler::<T>))
@@ -389,10 +389,10 @@ pub async fn path_handler<T: ContentLoader + Unpin>(
 }
 
 #[tracing::instrument(skip(state))]
-pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
-    Extension(state): Extension<Arc<State<T>>>,
+pub async fn post_single_handler<T: ContentLoader + std::marker::Unpin>(
+    state: Arc<State<T>>,
     request_headers: HeaderMap,
-    http_req: HttpRequest<Body>,
+    stream: BodyStream,
 ) -> Result<GatewayResponse, GatewayError> {
     // If this gateway is not writable, return a 400 error.
     if !state.config.writeable_gateway() {
@@ -415,29 +415,22 @@ pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
         |err: anyhow::Error| GatewayError::new(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string());
 
     // Convert the http body into an AsyncRead
-    let futures_async_read = TryStreamExt::map_err(http_req.into_body(), |_err| {
+    let futures_async_read = TryStreamExt::map_err(stream, |_err| {
         io::Error::new(io::ErrorKind::Other, "Error!")
     })
     .into_async_read();
     let reader = tokio_util::compat::FuturesAsyncReadCompatExt::compat(futures_async_read);
 
+    let loader = &state.client.resolver.loader;
     let cid = if file_name.is_empty() {
-        state
-            .client
-            .resolver
-            .loader
-            .store_file(reader)
-            .await
-            .map_err(into_gateway)?
+        loader.store_file(reader).await.map_err(into_gateway)?
     } else {
-        state
-            .client
-            .resolver
-            .loader
+        loader
             .store_files(vec![(reader, file_name.into())])
             .await
             .map_err(into_gateway)?
     };
+
     let location = format!(
         "ipfs://{}{}",
         cid,
@@ -447,6 +440,7 @@ pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
             format!("/{}", file_name)
         }
     );
+    println!("post_single: location={}", location);
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -458,7 +452,7 @@ pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
 
 #[tracing::instrument(skip(state))]
 pub async fn post_multipart_handler<T: ContentLoader + std::marker::Unpin>(
-    Extension(state): Extension<Arc<State<T>>>,
+    state: Arc<State<T>>,
     request_headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<GatewayResponse, GatewayError> {
@@ -504,6 +498,20 @@ pub async fn post_multipart_handler<T: ContentLoader + std::marker::Unpin>(
         HeaderValue::from_str(&cid.to_string()).unwrap(),
     );
     Ok(GatewayResponse::created(&location, headers))
+}
+
+#[tracing::instrument(skip(state))]
+pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
+    Extension(state): Extension<Arc<State<T>>>,
+    request_headers: HeaderMap,
+    multipart: MaybeMultipart,
+) -> Result<GatewayResponse, GatewayError> {
+    match multipart {
+        MaybeMultipart::Multiple(multipart) => {
+            post_multipart_handler(state, request_headers, multipart).await
+        }
+        MaybeMultipart::Single(stream) => post_single_handler(state, request_headers, stream).await,
+    }
 }
 
 #[tracing::instrument()]

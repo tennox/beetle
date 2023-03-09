@@ -39,6 +39,7 @@ libp2p.workspace = true
 mime.workspace = true
 mime_classifier.workspace = true
 mime_guess.workspace = true
+multer =  "2.0"
 names.workspace = true
 once_cell.workspace = true
 opentelemetry = { workspace = true, features = ["rt-tokio"] }

@@ -7,6 +7,7 @@ pub mod constants;
 pub mod core;
 mod cors;
 mod error;
+mod extractor;
 pub mod handler_params;
 pub mod handlers;
 pub mod headers;

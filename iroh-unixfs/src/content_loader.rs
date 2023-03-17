@@ -189,26 +189,45 @@ impl FullLoader {
         }
     }
 
-    // Try to fetch the cid from one of the configured gateways.
+    // Try to fetch from one url
+    async fn fetch_http_cid(&self, url: &GatewayUrl, cid: &Cid) -> Result<LoadedCid> {
+        let response = reqwest::get(url.as_url(cid)?).await?;
+        if !response.status().is_success() {
+            return Err(anyhow!("unexpected http status"));
+        }
+        let data = response.bytes().await?;
+        // Make sure the content is not tampered with.
+        if iroh_util::verify_hash(cid, &data) == Some(true) {
+            Ok(LoadedCid {
+                data,
+                source: Source::Http(url.as_string()),
+            })
+        } else {
+            Err(anyhow!("invalid CID hash"))
+        }
+    }
+
+    // Race all the configured gateways to fetch a cid.
     async fn fetch_gateway(&self, cid: &Cid) -> Result<Option<LoadedCid>> {
         let mut last_error = Ok(None);
 
+        let mut fetches = vec![];
         for url in &self.http_gateways {
-            let response = reqwest::get(url.as_url(cid)?).await?;
-            if !response.status().is_success() {
-                last_error = Err(anyhow!("unexpected http status"));
-                continue;
+            fetches.push(Box::pin(self.fetch_http_cid(url, cid)));
+        }
+
+        while !fetches.is_empty() {
+            let (winner, _index, remainder) = futures::future::select_all(fetches).await;
+
+            match winner {
+                Ok(loaded) => {
+                    // println!("winner: {:?}", loaded.source);
+                    return Ok(Some(loaded));
+                }
+                Err(err) => last_error = Err(err),
             }
-            let data = response.bytes().await?;
-            // Make sure the content is not tampered with.
-            if iroh_util::verify_hash(cid, &data) == Some(true) {
-                return Ok(Some(LoadedCid {
-                    data,
-                    source: Source::Http(url.as_string()),
-                }));
-            } else {
-                last_error = Err(anyhow!("invalid CID hash"));
-            }
+
+            fetches = remainder;
         }
 
         last_error

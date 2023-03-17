@@ -9,7 +9,7 @@ gateway_addr = "irpc://127.0.0.1:4445"
 cache = false
 denylist = false
 fetch = false
-http_resolvers = ['dweb.link']
+http_resolvers = ['https://w3s.link/ipfs/', 'https://dweb.link/ipfs/', 'https://ipfs.io/ipfs/']
 port = 9050
 writeable = true
 

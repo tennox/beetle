@@ -4,7 +4,7 @@ use axum::routing::any;
 use axum::{
     body::Body,
     error_handling::HandleErrorLayer,
-    extract::{BodyStream, Extension, Multipart, Path as AxumPath, Query},
+    extract::{BodyStream, DefaultBodyLimit, Extension, Multipart, Path as AxumPath, Query},
     http::{header::*, Request as HttpRequest, StatusCode},
     middleware,
     response::IntoResponse,
@@ -149,6 +149,7 @@ pub fn get_app_routes<T: ContentLoader + Unpin>(state: &Arc<State<T>>) -> Router
                 )
             }),
         )
+        .layer(DefaultBodyLimit::max(500 * 1024 * 1024)) // Limit body requests to 500MB.
 }
 
 async fn request_preprocessing<T: ContentLoader + Unpin>(

@@ -9,6 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - None.
 
+# 0.6.7 (17. February, 2023)
+
+- **added:** Add `FormRejection::FailedToDeserializeFormBody` which is returned
+  if the request body couldn't be deserialized into the target type, as opposed
+  to `FailedToDeserializeForm` which is only for query parameters ([#1683])
+- **added:** Add `MockConnectInfo` for setting `ConnectInfo` during tests ([#1767])
+
+[#1683]: https://github.com/tokio-rs/axum/pull/1683
+[#1767]: https://github.com/tokio-rs/axum/pull/1767
+
+# 0.6.6 (12. February, 2023)
+
+- **fixed:** Enable passing `MethodRouter` to `Router::fallback` ([#1730])
+
+[#1730]: https://github.com/tokio-rs/axum/pull/1730
+
+# 0.6.5 (11. February, 2023)
+
+- **fixed:** Fix `#[debug_handler]` sometimes giving wrong borrow related suggestions ([#1710])
+- Document gotchas related to using `impl IntoResponse` as the return type from handler functions ([#1736])
+
+[#1710]: https://github.com/tokio-rs/axum/pull/1710
+[#1736]: https://github.com/tokio-rs/axum/pull/1736
+
+# 0.6.4 (22. January, 2023)
+
+- Depend on axum-macros 0.3.2
+
+# 0.6.3 (20. January, 2023)
+
+- **added:** Implement `IntoResponse` for `&'static [u8; N]` and `[u8; N]` ([#1690])
+- **fixed:** Make `Path` support types using `serde::Deserializer::deserialize_any` ([#1693])
+- **added:** Add `RawPathParams` ([#1713])
+- **added:** Implement `Clone` and `Service` for `axum::middleware::Next` ([#1712])
+- **fixed:** Document required tokio features to run "Hello, World!" example ([#1715])
+
+[#1690]: https://github.com/tokio-rs/axum/pull/1690
+[#1693]: https://github.com/tokio-rs/axum/pull/1693
+[#1712]: https://github.com/tokio-rs/axum/pull/1712
+[#1713]: https://github.com/tokio-rs/axum/pull/1713
+[#1715]: https://github.com/tokio-rs/axum/pull/1715
+
+# 0.6.2 (9. January, 2023)
+
+- **added:** Add `body_text` and `status` methods to built-in rejections ([#1612])
+- **added:** Enable the `runtime` feature of `hyper` when using `tokio` ([#1671])
+
+[#1612]: https://github.com/tokio-rs/axum/pull/1612
+[#1671]: https://github.com/tokio-rs/axum/pull/1671
+
 # 0.6.1 (29. November, 2022)
 
 - **added:** Expand the docs for `Router::with_state` ([#1580])
@@ -40,7 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```rust
   // this time without a fallback
   let api_router = Router::new().route("/users", get(|| { ... }));
-  
+
   let app = Router::new()
       .nest("/api", api_router)
       // `api_router` will inherit this fallback
@@ -153,6 +203,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   async fn fallback() {}
   ```
 
+- **breaking:** It is no longer supported to `nest` twice at the same path, i.e.
+  `.nest("/foo", a).nest("/foo", b)` will panic. Instead use `.nest("/foo", a.merge(b))`
+- **breaking:** It is no longer supported to `nest` a router and add a route at
+  the same path, such as `.nest("/a", _).route("/a", _)`. Instead use
+  `.nest("/a/", _).route("/a", _)`.
 - **changed:** `Router::nest` now only accepts `Router`s, the general-purpose
   `Service` nesting method has been renamed to `nest_service` ([#1368])
 - **breaking:** Allow `Error: Into<Infallible>` for `Route::{layer, route_layer}` ([#924])
@@ -185,9 +240,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   let app = Router::new()
       .route("/", get(handler))
       .layer(Extension(AppState {}));
-  
+
   async fn handler(Extension(app_state): Extension<AppState>) {}
-  
+
   #[derive(Clone)]
   struct AppState {}
   ```
@@ -200,9 +255,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   let app = Router::new()
       .route("/", get(handler))
       .with_state(AppState {});
-  
+
   async fn handler(State(app_state): State<AppState>) {}
-  
+
   #[derive(Clone)]
   struct AppState {}
   ```
@@ -219,22 +274,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   };
 
   let app = Router::new().route("/", get(handler)).with_state(state);
-  
+
   async fn handler(
       State(client): State<HttpClient>,
       State(database): State<Database>,
   ) {}
-  
+
   // the derive requires enabling the "macros" feature
   #[derive(Clone, FromRef)]
   struct AppState {
       client: HttpClient,
       database: Database,
   }
-  
+
   #[derive(Clone)]
   struct HttpClient {}
-  
+
   #[derive(Clone)]
   struct Database {}
   ```
@@ -288,7 +343,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       B: Send,
   {
       type Rejection = StatusCode;
-  
+
       async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
           // ...
       }
@@ -313,7 +368,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       S: Send + Sync,
   {
       type Rejection = StatusCode;
-  
+
       async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
           // ...
       }
@@ -327,7 +382,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       B: Send + 'static,
   {
       type Rejection = StatusCode;
-  
+
       async fn from_request(req: Request<B>, state: &S) -> Result<Self, Self::Rejection> {
           // ...
       }
@@ -762,9 +817,9 @@ Yanked, as it didn't compile in release mode.
   let app = Router::new()
       .route("/", get(handler))
       .layer(Extension(AppState {}));
-  
+
   async fn handler(Extension(app_state): Extension<AppState>) {}
-  
+
   #[derive(Clone)]
   struct AppState {}
   ```
@@ -776,9 +831,9 @@ Yanked, as it didn't compile in release mode.
 
   let app = Router::with_state(AppState {})
       .route("/", get(handler));
-  
+
   async fn handler(State(app_state): State<AppState>) {}
-  
+
   #[derive(Clone)]
   struct AppState {}
   ```
@@ -795,30 +850,30 @@ Yanked, as it didn't compile in release mode.
   };
 
   let app = Router::with_state(state).route("/", get(handler));
-  
+
   async fn handler(
       State(client): State<HttpClient>,
       State(database): State<Database>,
   ) {}
-  
+
   #[derive(Clone)]
   struct AppState {
       client: HttpClient,
       database: Database,
   }
-  
+
   #[derive(Clone)]
   struct HttpClient {}
-  
+
   impl FromRef<AppState> for HttpClient {
       fn from_ref(state: &AppState) -> Self {
           state.client.clone()
       }
   }
-  
+
   #[derive(Clone)]
   struct Database {}
-  
+
   impl FromRef<AppState> for Database {
       fn from_ref(state: &AppState) -> Self {
           state.database.clone()
@@ -874,7 +929,7 @@ Yanked, as it didn't compile in release mode.
       B: Send,
   {
       type Rejection = StatusCode;
-  
+
       async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
           // ...
       }
@@ -899,7 +954,7 @@ Yanked, as it didn't compile in release mode.
       S: Send + Sync,
   {
       type Rejection = StatusCode;
-  
+
       async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
           // ...
       }
@@ -913,7 +968,7 @@ Yanked, as it didn't compile in release mode.
       B: Send + 'static,
   {
       type Rejection = StatusCode;
-  
+
       async fn from_request(req: Request<B>, state: &S) -> Result<Self, Self::Rejection> {
           // ...
       }

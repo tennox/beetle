@@ -44,7 +44,7 @@ use tower_service::Service;
 /// # let _: Router = app;
 /// ```
 ///
-/// # Rejection the request
+/// # Rejecting the request
 ///
 /// The function given to `map_request` is allowed to also return a `Result` which can be used to
 /// reject the request and return a response immediately, without calling the remaining
@@ -53,7 +53,7 @@ use tower_service::Service;
 /// Specifically the valid return types are:
 ///
 /// - `Request<B>`
-/// - `Request<Request<B>, E> where E:  IntoResponse`
+/// - `Result<Request<B>, E> where E:  IntoResponse`
 ///
 /// ```
 /// use axum::{
@@ -385,7 +385,7 @@ mod tests {
     use crate::{routing::get, test_helpers::TestClient, Router};
     use http::{HeaderMap, StatusCode};
 
-    #[tokio::test]
+    #[crate::test]
     async fn works() {
         async fn add_header<B>(mut req: Request<B>) -> Request<B> {
             req.headers_mut().insert("x-foo", "foo".parse().unwrap());
@@ -410,7 +410,7 @@ mod tests {
         assert_eq!(res.text().await, "foo");
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn works_for_short_circutting() {
         async fn add_header<B>(_req: Request<B>) -> Result<Request<B>, (StatusCode, &'static str)> {
             Err((StatusCode::INTERNAL_SERVER_ERROR, "something went wrong"))

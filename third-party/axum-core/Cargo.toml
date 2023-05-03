@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.56"
 name = "axum-core"
-version = "0.3.0"
+version = "0.3.3"
 description = "Core types and traits for axum"
 homepage = "https://github.com/tokio-rs/axum"
 readme = "README.md"
@@ -29,6 +29,15 @@ categories = [
 ]
 license = "MIT"
 repository = "https://github.com/tokio-rs/axum"
+
+[package.metadata.cargo-public-api-crates]
+allowed = [
+    "futures_core",
+    "http",
+    "bytes",
+    "http_body",
+    "tower_layer",
+]
 
 [dependencies.async-trait]
 version = "0.1"
@@ -58,19 +67,20 @@ version = "0.3"
 
 [dev-dependencies.axum]
 version = "0.6.0"
+features = ["headers"]
 
 [dev-dependencies.futures-util]
 version = "0.3"
 
 [dev-dependencies.hyper]
-version = "0.14"
+version = "0.14.24"
 
 [dev-dependencies.tokio]
-version = "1.0"
+version = "1.25.0"
 features = ["macros"]
 
 [dev-dependencies.tower-http]
-version = "0.3.4"
+version = "0.4"
 features = ["limit"]
 
 [build-dependencies.rustversion]

@@ -1,19 +1,20 @@
 [source.crates-io]
 replace-with = "vendored-sources"
 
-[source."https://github.com/bluejekyll/trust-dns.git"]
+[source."git+https://github.com/bluejekyll/trust-dns.git?rev=e045743b88254e32cf0a75078e2213b9450ffeed"]
 git = "https://github.com/bluejekyll/trust-dns.git"
+rev = "e045743b88254e32cf0a75078e2213b9450ffeed"
 replace-with = "vendored-sources"
 
-[source."https://github.com/capyloon/quicksink.git"]
+[source."git+https://github.com/capyloon/quicksink.git"]
 git = "https://github.com/capyloon/quicksink.git"
 replace-with = "vendored-sources"
 
-[source."https://github.com/capyloon/soketto.git"]
+[source."git+https://github.com/capyloon/soketto.git"]
 git = "https://github.com/capyloon/soketto.git"
 replace-with = "vendored-sources"
 
-[source."https://github.com/capyloon/wasm-timer.git"]
+[source."git+https://github.com/capyloon/wasm-timer.git"]
 git = "https://github.com/capyloon/wasm-timer.git"
 replace-with = "vendored-sources"
 

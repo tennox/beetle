@@ -11,14 +11,12 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 ahash.workspace = true
-async-trait.workspace = true
 async-stream.workspace = true
 bytecheck.workspace = true
 bytes.workspace = true
 cid.workspace = true
 clap = { workspace = true, features = ["derive"] }
 config.workspace = true
-ctrlc.workspace = true
 futures.workspace = true
 git-version.workspace = true
 iroh-metrics = { workspace = true, features = ["store"] }
@@ -26,16 +24,12 @@ iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true
 multihash.workspace = true
-names.workspace = true
-opentelemetry = { workspace = true, features = ["rt-tokio"] }
 rkyv = { workspace = true, features = ["validation"] }
 rocksdb.workspace = true
 serde = { workspace = true, features = ["derive"] }
 smallvec = { workspace = true, features = ["write"] }
 tokio = { workspace = true, features = ["rt"] }
 tracing.workspace = true
-tracing-opentelemetry.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["async_tokio"] }

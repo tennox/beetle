@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use config::{ConfigError, Map, Source, Value};
-use iroh_metrics::config::Config as MetricsConfig;
 use iroh_rpc_client::Config as RpcClientConfig;
 use iroh_rpc_types::store::StoreAddr;
 use iroh_util::{insert_into_config_map, iroh_data_path};
@@ -32,8 +31,6 @@ pub fn config_data_path(arg_path: Option<PathBuf>) -> Result<PathBuf> {
 pub struct ServerConfig {
     /// Configuration of the store service.
     pub store: Config,
-    /// Configuration for metrics export.
-    pub metrics: MetricsConfig,
 }
 
 impl ServerConfig {
@@ -41,7 +38,6 @@ impl ServerConfig {
         let addr = "irpc://0.0.0.0:4402".parse().unwrap();
         Self {
             store: Config::with_rpc_addr(path, addr),
-            metrics: Default::default(),
         }
     }
 }
@@ -54,7 +50,6 @@ impl Source for ServerConfig {
     fn collect(&self) -> Result<Map<String, Value>, ConfigError> {
         let mut map: Map<String, Value> = Map::new();
         insert_into_config_map(&mut map, "store", self.store.collect()?);
-        insert_into_config_map(&mut map, "metrics", self.metrics.collect()?);
         Ok(map)
     }
 }
@@ -141,10 +136,6 @@ mod tests {
         expect.insert(
             "store".to_string(),
             Value::new(None, default.store.collect().unwrap()),
-        );
-        expect.insert(
-            "metrics".to_string(),
-            Value::new(None, default.metrics.collect().unwrap()),
         );
 
         let got = default.collect().unwrap();

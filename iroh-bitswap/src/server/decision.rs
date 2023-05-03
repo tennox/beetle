@@ -3,7 +3,6 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 use ahash::{AHashMap, AHashSet};
 use anyhow::{anyhow, Result};
 use cid::Cid;
-use iroh_metrics::{bitswap::BitswapMetrics, inc, record};
 use libp2p::PeerId;
 use tokio::{
     sync::{oneshot, Mutex, Notify, RwLock},
@@ -26,7 +25,6 @@ use super::{
     score_ledger::{DefaultScoreLedger, Receipt},
     task_merger::{TaskData, TaskMerger},
 };
-use iroh_metrics::core::MRecorder;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskInfo {
@@ -111,9 +109,6 @@ pub struct Engine<S: Store> {
     /// replace a want-have with a want-block.
     max_block_size_replace_has_with_block: usize,
     send_dont_haves: bool,
-    // pending_gauge -> iroh-metrics
-    // active_guage -> iroh-metrics
-    metrics_update_counter: Mutex<usize>, // ?? atomic
     peer_block_request_filter: Option<Box<dyn PeerBlockRequestFilter>>,
     /// List of handles to worker threads.
     workers: Vec<(oneshot::Sender<()>, JoinHandle<()>)>,
@@ -165,7 +160,6 @@ impl<S: Store> Engine<S> {
 
             let handle = rt.spawn(async move {
                 loop {
-                    inc!(BitswapMetrics::EngineLoopTick);
                     tokio::select! {
                         biased;
                         _ = &mut closer_r => {
@@ -270,21 +264,9 @@ impl<S: Store> Engine<S> {
             score_ledger,
             max_block_size_replace_has_with_block: config.max_replace_size,
             send_dont_haves: config.send_dont_haves,
-            metrics_update_counter: Default::default(),
             peer_block_request_filter: config.peer_block_request_filter,
             workers,
             work_signal,
-        }
-    }
-
-    async fn update_metrics(&self) {
-        let mut counter = self.metrics_update_counter.lock().await;
-        *counter += 1;
-
-        if *counter % 100 == 0 {
-            let stats = self.peer_task_queue.stats().await;
-            record!(BitswapMetrics::EnginePendingTasks, stats.num_pending as u64);
-            record!(BitswapMetrics::EngineActiveTasks, stats.num_active as u64);
         }
     }
 
@@ -445,7 +427,6 @@ impl<S: Store> Engine<S> {
 
         if !active_entries.is_empty() {
             self.peer_task_queue.push_tasks(*peer, active_entries).await;
-            self.update_metrics().await;
         }
 
         if new_work_exists {
@@ -576,7 +557,6 @@ impl<S: Store> Engine<S> {
                         },
                     )
                     .await;
-                self.update_metrics().await;
             }
         }
 

@@ -9,8 +9,6 @@ use std::{
 use anyhow::{anyhow, bail, Context as _, Result};
 use cid::Cid;
 use futures::Stream;
-use iroh_metrics::{bitswap::BitswapMetrics, inc};
-use iroh_metrics::{core::MRecorder, record};
 use libp2p::{core::connection::ConnectionId, PeerId};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace};
@@ -112,20 +110,12 @@ impl Network {
         backoff: Duration,
     ) -> Result<()> {
         debug!("send:{}: start: {:#?}", peer, message);
-        inc!(BitswapMetrics::MessagesAttempted);
-
-        let num_blocks = message.blocks().count();
-        let num_block_bytes = message.blocks().map(|b| b.data.len() as u64).sum();
 
         tokio::time::timeout(timeout, async {
             let mut errors: Vec<anyhow::Error> = Vec::new();
             for i in 1..=retries {
                 debug!("send:{}: try {}/{}", peer, i, retries);
                 let (s, r) = oneshot::channel();
-                record!(
-                    BitswapMetrics::MessageBytesOut,
-                    message.clone().encoded_len() as u64
-                );
                 self.network_out_sender
                     .send(OutEvent::SendMessage {
                         peer,
@@ -174,12 +164,6 @@ impl Network {
         debug!("send:{}: success", peer);
         // Record successfull stats
 
-        inc!(BitswapMetrics::MessagesSent);
-        for _ in 0..num_blocks {
-            inc!(BitswapMetrics::BlocksOut);
-        }
-        record!(BitswapMetrics::SentBlockBytes, num_block_bytes);
-
         Ok(())
     }
 
@@ -210,7 +194,6 @@ impl Network {
             .dial_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        inc!(BitswapMetrics::AttemptedDials);
         debug!("dial:{}: peer {}", dial_id, peer);
         let res = tokio::time::timeout(timeout, async move {
             let (s, r) = oneshot::channel();
@@ -232,7 +215,6 @@ impl Network {
         .map_err(|e| anyhow!("dial:{} error: {:?}", dial_id, e))??;
 
         debug!("dial:{}: success {}", dial_id, peer);
-        inc!(BitswapMetrics::Dials);
 
         Ok(res)
     }
@@ -320,7 +302,6 @@ impl Network {
     }
 
     pub fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<OutEvent> {
-        inc!(BitswapMetrics::NetworkPollTick);
         match Pin::new(&mut self.network_out_receiver).poll_next(cx) {
             Poll::Ready(Some(ev)) => Poll::Ready(ev),
             Poll::Ready(None) => Poll::Pending,

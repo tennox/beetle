@@ -6,8 +6,6 @@ use std::{
 use ahash::AHashSet;
 use anyhow::{ensure, Result};
 use cid::Cid;
-use iroh_metrics::core::MRecorder;
-use iroh_metrics::{bitswap::BitswapMetrics, inc};
 use libp2p::PeerId;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, error, warn};
@@ -207,7 +205,6 @@ impl MessageQueue {
             "message queue {} already stopped",
             self.peer
         );
-        inc!(BitswapMetrics::MessageQueuesStopped);
 
         let _ = self.sender_wants.take();
         let _ = self.sender_responses.take();
@@ -231,7 +228,6 @@ async fn run(mut actor: MessageQueueActor) {
     let mut schedule_work_enabled = false;
 
     loop {
-        inc!(BitswapMetrics::MessageQueueWorkerLoopTick);
         tokio::select! {
             biased;
 

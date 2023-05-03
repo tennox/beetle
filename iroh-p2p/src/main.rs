@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use iroh_p2p::config::{Config, CONFIG_FILE_NAME, ENV_PREFIX};
 use iroh_p2p::ServerConfig;
-use iroh_p2p::{cli::Args, metrics, DiskStorage, Keychain, Node};
+use iroh_p2p::{cli::Args, DiskStorage, Keychain, Node};
 use iroh_util::lock::ProgramLock;
 use iroh_util::{iroh_config_path, make_config};
 use tokio::task;
@@ -41,13 +41,6 @@ fn main() -> Result<()> {
         )
         .context("invalid config")?;
 
-        let metrics_config =
-            metrics::metrics_config_with_compile_time_info(network_config.metrics.clone());
-
-        let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config)
-            .await
-            .map_err(|e| anyhow!("metrics init failed: {:?}", e))?;
-
         #[cfg(unix)]
         {
             match iroh_util::increase_fd_limit() {
@@ -76,7 +69,6 @@ fn main() -> Result<()> {
         p2p_task.abort();
         p2p_task.await.ok();
 
-        metrics_handle.shutdown();
         Ok(())
     })
 }

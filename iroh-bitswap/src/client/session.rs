@@ -4,7 +4,6 @@ use ahash::AHashSet;
 use anyhow::{anyhow, ensure, Result};
 use cid::Cid;
 use futures::{future, stream, StreamExt};
-use iroh_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc, record};
 use libp2p::PeerId;
 use tokio::{
     sync::oneshot,
@@ -114,7 +113,6 @@ impl Session {
             let mut periodic_search_timer = tokio::time::interval(periodic_search_delay);
 
             loop {
-                inc!(BitswapMetrics::SessionLoopTick);
                 tokio::select! {
                     biased;
                     _ = &mut closer_r => {
@@ -131,7 +129,6 @@ impl Session {
                                 loop_state.want_blocks(keys).await;
                             },
                             Ok(Op::Cancel(keys)) => {
-                                record!(BitswapMetrics::CancelBlocks, keys.len() as u64);
                                 loop_state.session_wants.cancel_pending(&keys);
                                 loop_state.session_want_sender.cancel(keys).await;
                             }
@@ -205,8 +202,6 @@ impl Session {
             .send(())
             .map_err(|e| anyhow!("failed to stop worker: {:?}", e))?;
         inner.worker.await?;
-
-        inc!(BitswapMetrics::SessionsDestroyed);
 
         debug!("session stopped");
         Ok(())
@@ -306,7 +301,6 @@ impl Session {
         let (closer_s, mut closer_r) = oneshot::channel();
         let worker = tokio::task::spawn(async move {
             loop {
-                inc!(BitswapMetrics::SessionGetBlockLoopTick);
                 tokio::select! {
                     biased;
                     _ = &mut closer_r => {
@@ -432,7 +426,6 @@ impl LoopState {
                             })
                             // Notify the session about successfull ones.
                             .for_each_concurrent(None, |provider| {
-                                inc!(BitswapMetrics::ProvidersTotal);
                                 debug!("found provider for {}: {}", cid, provider);
                                 // When a provider indicates that it has a cid, it's equivalent to
                                 // the providing peer sending a HAVE.
@@ -536,7 +529,6 @@ impl LoopState {
     /// Attempts to find more peers for a session by searching for providers for the given cid.
     async fn find_more_peers(&mut self, cid: &Cid) {
         debug!("session:{}: find_more_peers {}", self.id, cid);
-        inc!(BitswapMetrics::ProviderQueryCreated);
         self.provider_search_queue.push(*cid).await;
     }
 
@@ -553,7 +545,6 @@ impl LoopState {
         if wanted.is_empty() {
             return;
         }
-        record!(BitswapMetrics::WantedBlocksReceived, wanted.len() as u64);
 
         // Record latency
         self.latency_tracker
@@ -574,7 +565,6 @@ impl LoopState {
 
     /// Called when blocks are requested by the client.
     async fn want_blocks(&mut self, new_keys: Vec<Cid>) {
-        record!(BitswapMetrics::WantedBlocks, new_keys.len() as u64);
         if !new_keys.is_empty() {
             // Inform the SessionInterestManager that this session is interested in the keys.
             self.session_interest_manager

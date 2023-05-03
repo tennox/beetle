@@ -1,5 +1,4 @@
 use config::{ConfigError, Map, Source, Value};
-use iroh_metrics::config::Config as MetricsConfig;
 use iroh_rpc_client::Config as RpcClientConfig;
 use iroh_unixfs::indexer::IndexerUrl;
 use iroh_util::insert_into_config_map;
@@ -15,7 +14,6 @@ pub const ENV_PREFIX: &str = "IROH_CTL";
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub rpc_client: RpcClientConfig,
-    pub metrics: MetricsConfig,
     pub http_resolvers: Option<Vec<String>>,
     pub indexer_endpoint: Option<IndexerUrl>,
 }
@@ -24,7 +22,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rpc_client: RpcClientConfig::default_network(),
-            metrics: Default::default(),
             http_resolvers: None,
             indexer_endpoint: Some(IndexerUrl::default()),
         }
@@ -38,7 +35,6 @@ impl Source for Config {
     fn collect(&self) -> Result<Map<String, Value>, ConfigError> {
         let mut map: Map<String, Value> = Map::new();
         insert_into_config_map(&mut map, "rpc_client", self.rpc_client.collect()?);
-        insert_into_config_map(&mut map, "metrics", self.metrics.collect()?);
         if let Some(http_resolvers) = &self.http_resolvers {
             insert_into_config_map(&mut map, "http_resolvers", http_resolvers.clone());
         }
@@ -62,10 +58,6 @@ mod tests {
         expect.insert(
             "rpc_client".to_string(),
             Value::new(None, default.rpc_client.collect().unwrap()),
-        );
-        expect.insert(
-            "metrics".to_string(),
-            Value::new(None, default.metrics.collect().unwrap()),
         );
         expect.insert(
             "indexer_endpoint".to_string(),

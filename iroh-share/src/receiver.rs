@@ -233,12 +233,11 @@ impl Data {
     }
 
     pub fn read_dir(&self) -> Result<Option<impl Stream<Item = Result<Link>> + '_>> {
-        self.root
-            .unixfs_read_dir(&self.resolver, Default::default())
+        self.root.unixfs_read_dir(&self.resolver)
     }
 
     pub fn pretty(self) -> Result<OutPrettyReader<Loader>> {
-        self.root.pretty(self.resolver, Default::default(), None)
+        self.root.pretty(self.resolver, None)
     }
 
     pub async fn read_file(&self, link: &Link) -> Result<Data> {

@@ -148,13 +148,13 @@ impl Api {
                 if out.is_dir() {
                     yield (relative_path, OutType::Dir);
                 } else if out.is_symlink() {
-                    let mut reader = out.pretty(resolver.clone(), Default::default(), None)?;
+                    let mut reader = out.pretty(resolver.clone(), None)?;
                     let mut target = String::new();
                     reader.read_to_string(&mut target).await?;
                     let target = PathBuf::from(target);
                     yield (relative_path, OutType::Symlink(target));
                 } else {
-                    let reader = out.pretty(resolver.clone(), Default::default(), None)?;
+                    let reader = out.pretty(resolver.clone(), None)?;
                     yield (relative_path, OutType::Reader(Box::new(reader)));
                 }
             }

@@ -182,7 +182,6 @@ impl IrohBuilder {
         };
         let api_config = iroh_api::config::Config {
             rpc_client: rpc_config,
-            metrics: Default::default(),
             http_resolvers,
             indexer_endpoint: self.indexer,
         };

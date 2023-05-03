@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 use cid::Cid;
 use derivative::Derivative;
 use futures::{future::BoxFuture, FutureExt};
-use iroh_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
 use libp2p::PeerId;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, trace, warn};
@@ -303,8 +302,6 @@ impl PeerManager {
 
 async fn run(mut actor: PeerManagerActor) {
     loop {
-        inc!(BitswapMetrics::PeerManagerLoopTick);
-
         tokio::select! {
             message = actor.receiver.recv() => {
                 match message {
@@ -476,7 +473,6 @@ impl PeerManagerActor {
         let peer_state = self.peers.get_mut(&peer).unwrap();
         if !peer_state.message_queue.is_running() {
             trace!("found stopped peer_queue, restarting: {}", peer);
-            inc!(BitswapMetrics::MessageQueuesCreated);
             // Restart if the queue was stopped, but not yet cleaned up.
             peer_state.message_queue = MessageQueue::new(
                 peer,
@@ -497,7 +493,6 @@ impl PeerManagerActor {
 
     async fn disconnected(&mut self, peer: PeerId) {
         if let Some(peer_state) = self.peers.remove(&peer) {
-            inc!(BitswapMetrics::MessageQueuesDestroyed);
             // inform the sessions that the peer has disconnected
 
             self.peer_want_manager.remove_peer(&peer);
@@ -583,7 +578,6 @@ impl PeerManagerActor {
                 }
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
-                inc!(BitswapMetrics::MessageQueuesCreated);
                 let message_queue = MessageQueue::new(
                     peer,
                     self.network.clone(),

@@ -19,7 +19,6 @@ clap = { workspace = true, features = ["derive"] }
 config.workspace = true
 futures.workspace = true
 git-version.workspace = true
-iroh-metrics = { workspace = true, features = ["store"] }
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true

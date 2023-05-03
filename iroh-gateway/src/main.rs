@@ -7,7 +7,6 @@ use iroh_gateway::{
     cli::Args,
     config::{Config, ServerConfig, CONFIG_FILE_NAME, ENV_PREFIX},
     core::Core,
-    metrics,
 };
 use iroh_rpc_client::Client as RpcClient;
 use iroh_unixfs::content_loader::{FullLoader, FullLoaderConfig};
@@ -24,7 +23,7 @@ async fn main() -> Result<()> {
 
     let cfg_path = iroh_config_path(CONFIG_FILE_NAME)?;
     let sources = [Some(cfg_path.as_path()), args.cfg.as_deref()];
-    let mut config = make_config(
+    let config = make_config(
         // default
         ServerConfig::default(),
         // potential config files
@@ -35,10 +34,8 @@ async fn main() -> Result<()> {
         args.make_overrides_map(),
     )
     .unwrap();
-    config.metrics = metrics::metrics_config_with_compile_time_info(config.metrics);
     println!("{config:#?}");
 
-    let metrics_config = config.metrics.clone();
     let dns_resolver_config = config.gateway.dns_resolver.clone();
     let bad_bits = match config.gateway.use_denylist {
         true => Arc::new(Some(RwLock::new(BadBits::new()))),
@@ -78,10 +75,6 @@ async fn main() -> Result<()> {
 
     let bad_bits_handle = bad_bits::spawn_bad_bits_updater(Arc::clone(&bad_bits));
 
-    let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config)
-        .await
-        .expect("failed to initialize metrics");
-
     #[cfg(unix)]
     {
         match iroh_util::increase_fd_limit() {
@@ -99,7 +92,6 @@ async fn main() -> Result<()> {
     iroh_util::block_until_sigint().await;
     core_task.abort();
 
-    metrics_handle.shutdown();
     if let Some(handle) = bad_bits_handle {
         handle.abort();
     }

@@ -5,7 +5,6 @@ use std::{
 };
 
 use ahash::AHashMap;
-use iroh_metrics::{core::MRecorder, inc, p2p::P2PMetrics};
 use libp2p::{
     core::{connection::ConnectionId, transport::ListenerId, ConnectedPoint},
     identify::Info as IdentifyInfo,
@@ -101,10 +100,7 @@ impl NetworkBehaviour for PeerManager {
         other_established: usize,
     ) {
         if other_established == 0 {
-            let p = self.bad_peers.pop(peer_id);
-            if p.is_some() {
-                inc!(P2PMetrics::BadPeerRemoved);
-            }
+            let _p = self.bad_peers.pop(peer_id);
         }
 
         if let Some(failed_addresses) = failed_addresses {
@@ -157,9 +153,7 @@ impl NetworkBehaviour for PeerManager {
             match error {
                 DialError::ConnectionLimit(_) | DialError::DialPeerConditionFalse(_) => {}
                 _ => {
-                    if self.bad_peers.put(peer_id, ()).is_none() {
-                        inc!(P2PMetrics::BadPeer);
-                    }
+                    self.bad_peers.put(peer_id, ());
                     self.info.remove(&peer_id);
                 }
             }

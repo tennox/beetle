@@ -10,7 +10,6 @@ use indicatif::{ProgressBar, ProgressStyle};
 use iroh_api::{
     Api, ChunkerConfig, IpfsPath, StatusType, UnixfsConfig, UnixfsEntry, DEFAULT_CHUNKS_SIZE,
 };
-use iroh_metrics::config::Config as MetricsConfig;
 use iroh_util::{human, iroh_config_path, make_config};
 
 use crate::config::{Config, CONFIG_FILE_NAME, ENV_PREFIX};
@@ -104,18 +103,12 @@ impl Cli {
         )
         .unwrap();
 
-        let metrics_handler = iroh_metrics::MetricsHandle::new(MetricsConfig::default())
-            .await
-            .expect("failed to initialize metrics");
-
         #[cfg(feature = "testing")]
         let api = get_fixture_api();
         #[cfg(not(feature = "testing"))]
         let api = iroh_api::Api::from_env(self.cfg.as_deref(), self.make_overrides_map()).await?;
 
         self.cli_command(&config, &api).await?;
-
-        metrics_handler.shutdown();
 
         Ok(())
     }

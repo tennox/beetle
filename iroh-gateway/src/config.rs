@@ -6,7 +6,6 @@ use headers::{
     AcceptRanges, AccessControlAllowHeaders, AccessControlAllowMethods, AccessControlAllowOrigin,
     AccessControlExposeHeaders, HeaderMapExt,
 };
-use iroh_metrics::config::Config as MetricsConfig;
 use iroh_resolver::dns_resolver::Config as DnsResolverConfig;
 use iroh_rpc_client::Config as RpcClientConfig;
 use iroh_rpc_types::gateway::GatewayAddr;
@@ -32,15 +31,12 @@ pub const DEFAULT_PORT: u16 = 9050;
 pub struct ServerConfig {
     /// Configuration of the gateway service.
     pub gateway: Config,
-    /// Metrics configuration.
-    pub metrics: MetricsConfig,
 }
 
 impl ServerConfig {
     pub fn new(port: u16, rpc_client: RpcClientConfig) -> Self {
         Self {
             gateway: Config::new(port, rpc_client),
-            metrics: MetricsConfig::default(),
         }
     }
 }
@@ -53,7 +49,6 @@ impl Source for ServerConfig {
     fn collect(&self) -> Result<Map<String, Value>, ConfigError> {
         let mut map: Map<String, Value> = Map::new();
         insert_into_config_map(&mut map, "gateway", self.gateway.collect()?);
-        insert_into_config_map(&mut map, "metrics", self.metrics.collect()?);
         Ok(map)
     }
 }
@@ -284,10 +279,6 @@ mod tests {
         expect.insert(
             "gateway".to_string(),
             Value::new(None, default.gateway.collect().unwrap()),
-        );
-        expect.insert(
-            "metrics".to_string(),
-            Value::new(None, default.metrics.collect().unwrap()),
         );
 
         let got = default.collect().unwrap();

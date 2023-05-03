@@ -6,7 +6,6 @@ use ahash::AHashMap;
 use anyhow::{anyhow, bail, Context, Result};
 use cid::Cid;
 use futures_util::stream::StreamExt;
-use iroh_metrics::{core::MRecorder, inc, libp2p_metrics, p2p::P2PMetrics};
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_types::p2p::P2pAddr;
 use libp2p::core::Multiaddr;
@@ -20,7 +19,6 @@ use libp2p::kad::{
     QueryId, QueryResult,
 };
 use libp2p::mdns;
-use libp2p::metrics::Recorder;
 use libp2p::multiaddr::Protocol;
 use libp2p::ping::Result as PingResult;
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
@@ -197,8 +195,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
         let mut expiry_interval = tokio::time::interval(EXPIRY_INTERVAL);
 
         loop {
-            inc!(P2PMetrics::LoopCounter);
-
             tokio::select! {
                 swarm_event = self.swarm.next() => {
                     let swarm_event = swarm_event.expect("the swarm will never die");
@@ -414,7 +410,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
             <NodeBehaviour as NetworkBehaviour>::OutEvent,
             <<<NodeBehaviour as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>,
     ) -> Result<()> {
-        libp2p_metrics().record(&event);
         match event {
             // outbound events
             SwarmEvent::Behaviour(event) => self.handle_node_event(event),
@@ -521,8 +516,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                 }
             }
             Event::Kademlia(e) => {
-                libp2p_metrics().record(&e);
-
                 if let KademliaEvent::OutboundQueryProgressed {
                     id, result, step, ..
                 } = e
@@ -544,9 +537,7 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                                             .filter(|provider| {
                                                 let is_bad =
                                                     swarm.peer_manager.is_bad_peer(provider);
-                                                if is_bad {
-                                                    inc!(P2PMetrics::SkippedPeerKad);
-                                                }
+
                                                 !is_bad
                                             })
                                             .collect();
@@ -634,7 +625,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                 }
             }
             Event::Identify(e) => {
-                libp2p_metrics().record(&*e);
                 trace!("tick: identify {:?}", e);
                 if let IdentifyEvent::Received { peer_id, info } = *e {
                     for protocol in &info.protocols {
@@ -684,7 +674,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                 }
             }
             Event::Ping(e) => {
-                libp2p_metrics().record(&e);
                 if let PingResult::Ok(ping) = e.result {
                     self.swarm
                         .behaviour_mut()
@@ -692,14 +681,9 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                         .inject_ping(e.peer, ping);
                 }
             }
-            Event::Relay(e) => {
-                libp2p_metrics().record(&e);
-            }
-            Event::Dcutr(e) => {
-                libp2p_metrics().record(&e);
-            }
+            Event::Relay(_e) => {}
+            Event::Dcutr(_e) => {}
             Event::Gossipsub(e) => {
-                libp2p_metrics().record(&e);
                 if let libp2p::gossipsub::GossipsubEvent::Message {
                     propagation_source,
                     message_id,

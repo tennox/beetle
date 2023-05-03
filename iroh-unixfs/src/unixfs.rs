@@ -9,7 +9,6 @@ use anyhow::{anyhow, bail, ensure, Result};
 use bytes::{Buf, Bytes};
 use cid::{multihash::MultihashDigest, Cid};
 use futures::{future::BoxFuture, stream::BoxStream, FutureExt, Stream, StreamExt};
-use iroh_metrics::resolver::OutMetrics;
 use prost::Message;
 use tokio::io::{AsyncRead, AsyncSeek};
 
@@ -310,7 +309,6 @@ impl UnixfsNode {
         &self,
         ctx: LoaderContext,
         loader: C,
-        om: OutMetrics,
     ) -> Result<Option<UnixfsChildStream>> {
         match self {
             UnixfsNode::Raw(_)
@@ -321,15 +319,11 @@ impl UnixfsNode {
                 let source = self.links().map(|l| l.map(|l| l.to_owned()));
                 let stream = futures::stream::iter(source).boxed();
 
-                Ok(Some(UnixfsChildStream::Directory {
-                    stream,
-                    out_metrics: om,
-                }))
+                Ok(Some(UnixfsChildStream::Directory { stream }))
             }
             UnixfsNode::HamtShard(_, hamt) => Ok(Some(UnixfsChildStream::Hamt {
                 stream: hamt.children(ctx, loader).boxed(),
                 pos: 0,
-                out_metrics: om,
             })),
         }
     }
@@ -338,7 +332,6 @@ impl UnixfsNode {
         self,
         ctx: LoaderContext,
         loader: C,
-        om: OutMetrics,
         pos_max: Option<usize>,
     ) -> Result<Option<UnixfsContentReader<C>>> {
         match self {
@@ -355,7 +348,6 @@ impl UnixfsNode {
                     current_node: CurrentNodeState::Outer,
                     current_links,
                     loader,
-                    out_metrics: om,
                     ctx: std::sync::Arc::new(tokio::sync::Mutex::new(ctx)),
                 }))
             }
@@ -368,23 +360,23 @@ pub enum UnixfsChildStream<'a> {
     Hamt {
         stream: BoxStream<'a, Result<Link>>,
         pos: usize,
-        out_metrics: OutMetrics,
     },
     Directory {
         stream: BoxStream<'a, Result<Link>>,
-        out_metrics: OutMetrics,
     },
 }
 
 impl<'a> Debug for UnixfsChildStream<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UnixfsChildStream::Hamt {
-                pos, out_metrics, ..
-            } =>
-                write!(f, "UnixfsChildStream::Hamt {{ stream: BoxStream<Result<Link>>, pos: {pos}, out_metrics {out_metrics:?} }}"),
-            UnixfsChildStream::Directory { out_metrics, .. } =>
-                write!(f, "UnixfsChildStream::Directory {{ stream: BoxStream<Result<Link>>, out_metrics {out_metrics:?} }}"),
+            UnixfsChildStream::Hamt { pos, .. } => write!(
+                f,
+                "UnixfsChildStream::Hamt {{ stream: BoxStream<Result<Link>>, pos: {pos} }}"
+            ),
+            UnixfsChildStream::Directory { .. } => write!(
+                f,
+                "UnixfsChildStream::Directory {{ stream: BoxStream<Result<Link>> }}"
+            ),
         }
     }
 }
@@ -402,7 +394,6 @@ pub enum UnixfsContentReader<C: ContentLoader> {
         /// Stack of links left to traverse.
         current_links: Vec<VecDeque<Link>>,
         loader: C,
-        out_metrics: OutMetrics,
         ctx: std::sync::Arc<tokio::sync::Mutex<LoaderContext>>,
     },
 }
@@ -451,11 +442,9 @@ impl<C: ContentLoader + Unpin + 'static> AsyncRead for UnixfsContentReader<C> {
                 current_node,
                 current_links,
                 loader,
-                out_metrics,
                 ctx,
             } => {
                 let typ = root_node.typ();
-                let pos_old = *pos;
                 let poll_res = match root_node {
                     UnixfsNode::Raw(data) => {
                         read_data_to_buf(pos, *pos_max, &data[*pos..], buf);
@@ -482,8 +471,6 @@ impl<C: ContentLoader + Unpin + 'static> AsyncRead for UnixfsContentReader<C> {
                         format!("unsupported Unixfs type for file types: {typ:?} "),
                     ))),
                 };
-                let bytes_read = *pos - pos_old;
-                out_metrics.observe_bytes_read(pos_old, bytes_read);
                 poll_res
             }
         }

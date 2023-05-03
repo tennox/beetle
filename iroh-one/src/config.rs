@@ -2,7 +2,6 @@ use anyhow::Result;
 use axum::http::header::*;
 use config::{ConfigError, Map, Source, Value};
 
-use iroh_metrics::config::Config as MetricsConfig;
 use iroh_p2p::Libp2pConfig;
 use iroh_rpc_client::Config as RpcClientConfig;
 use iroh_store::config::config_data_path;
@@ -35,8 +34,6 @@ pub struct Config {
     pub p2p: iroh_p2p::config::Config,
     /// rpc addresses for the gateway & addresses for the rpc client to dial
     pub rpc_client: RpcClientConfig,
-    /// metrics configuration
-    pub metrics: MetricsConfig,
 }
 
 impl Config {
@@ -52,7 +49,6 @@ impl Config {
             store,
             p2p,
             rpc_client,
-            metrics: MetricsConfig::default(),
             #[cfg(all(feature = "http-uds-gateway", unix))]
             gateway_uds_path,
         }
@@ -89,12 +85,10 @@ impl Default for Config {
             .path()
             .join("ipfsd.http");
         let rpc_client = Self::default_rpc_config();
-        let metrics_config = MetricsConfig::default();
         let store_config = default_store_config(None, rpc_client.clone()).unwrap();
         let key_store_path = iroh_util::iroh_data_root().unwrap();
         Self {
             rpc_client: rpc_client.clone(),
-            metrics: metrics_config,
             gateway: iroh_gateway::config::Config::default(),
             store: store_config,
             p2p: default_p2p_config(rpc_client, key_store_path),
@@ -135,7 +129,6 @@ impl Source for Config {
         insert_into_config_map(&mut map, "store", self.store.collect()?);
         insert_into_config_map(&mut map, "p2p", self.p2p.collect()?);
         insert_into_config_map(&mut map, "rpc_client", self.rpc_client.collect()?);
-        insert_into_config_map(&mut map, "metrics", self.metrics.collect()?);
         #[cfg(all(feature = "http-uds-gateway", unix))]
         if let Some(uds_path) = self.gateway_uds_path.as_ref() {
             insert_into_config_map(

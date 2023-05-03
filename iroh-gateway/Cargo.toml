@@ -29,7 +29,6 @@ http-serde.workspace = true
 http.workspace = true
 hyper.workspace = true
 iroh-car.workspace = true
-iroh-metrics = { workspace = true, features = ["gateway"] }
 iroh-resolver.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
@@ -40,7 +39,6 @@ mime_classifier.workspace = true
 mime_guess.workspace = true
 multer =  "2.0"
 once_cell.workspace = true
-opentelemetry = { workspace = true, features = ["rt-tokio"] }
 phf = { workspace = true, features = ["macros"] }
 rand.workspace = true
 reqwest = { workspace = true, features = ["rustls-tls"] }

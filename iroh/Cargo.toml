@@ -25,7 +25,6 @@ git-version.workspace = true
 indicatif.workspace = true
 iroh-api.workspace = true
 iroh-localops.workspace = true
-iroh-metrics.workspace = true
 iroh-rpc-client.workspace = true
 iroh-util.workspace = true
 iroh-unixfs.workspace = true

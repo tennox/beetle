@@ -6,8 +6,6 @@ use std::{
 
 use ahash::AHashMap;
 use anyhow::{anyhow, Result};
-use iroh_metrics::core::MRecorder;
-use iroh_metrics::{bitswap::BitswapMetrics, inc};
 use libp2p::PeerId;
 use tokio::{
     sync::{oneshot, RwLock},
@@ -155,7 +153,6 @@ impl DefaultScoreLedger {
             let mut i = 0;
 
             loop {
-                inc!(BitswapMetrics::ScoreLedgerLoopTick);
                 tokio::select! {
                     biased;
                     _ = &mut closer_r => {

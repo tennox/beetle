@@ -16,7 +16,6 @@ config.workspace = true
 futures.workspace = true
 hyper.workspace = true
 iroh-gateway.workspace = true
-iroh-metrics.workspace = true
 iroh-p2p.workspace = true
 iroh-unixfs.workspace = true
 iroh-rpc-client.workspace = true

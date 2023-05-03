@@ -16,7 +16,6 @@ bytes.workspace = true
 cid = { workspace = true, features = ["serde-codec"] }
 clap = { workspace = true, features = ["derive"] }
 futures.workspace = true
-iroh-metrics.workspace = true
 iroh-p2p.workspace = true
 iroh-resolver.workspace = true
 iroh-rpc-client.workspace = true

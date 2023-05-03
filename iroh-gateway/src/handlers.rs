@@ -15,7 +15,6 @@ use cid::Cid;
 use futures::TryStreamExt;
 use handlebars::Handlebars;
 use http::Method;
-use iroh_metrics::{core::MRecorder, gateway::GatewayMetrics, inc, resolver::OutMetrics};
 use iroh_resolver::resolver::{CidOrDomain, UnixfsType};
 use iroh_unixfs::{content_loader::ContentLoader, Link};
 use iroh_util::human::format_bytes;
@@ -328,7 +327,6 @@ pub async fn subdomain_handler<T: ContentLoader + Unpin>(
     request_headers: HeaderMap,
     http_req: HttpRequest<Body>,
 ) -> Result<GatewayResponse, GatewayError> {
-    inc!(GatewayMetrics::Requests);
     let parsed_subdomain_url = IpfsSubdomain::try_from_str(&host)
         .ok_or_else(|| GatewayError::new(StatusCode::BAD_REQUEST, "hostname is not compliant"))?;
     let path = Path::from_parts(
@@ -363,7 +361,6 @@ pub async fn path_handler<T: ContentLoader + Unpin>(
     request_headers: HeaderMap,
     http_req: HttpRequest<Body>,
 ) -> Result<GatewayResponse, GatewayError> {
-    inc!(GatewayMetrics::Requests);
     let path = Path::from_parts(
         &path_params.scheme,
         &path_params.cid_or_domain,
@@ -877,7 +874,7 @@ async fn serve_fs<T: ContentLoader + Unpin>(
     match body {
         FileResult::Directory(res) => {
             let dir_list: anyhow::Result<Vec<_>> = res
-                .unixfs_read_dir(&state.client.resolver, OutMetrics { start: start_time })
+                .unixfs_read_dir(&state.client.resolver)
                 .map_err(|e| GatewayError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
                 .expect("already known this is a directory")
                 .try_collect()
@@ -1110,7 +1107,6 @@ pub async fn middleware_error_handler(
     method: Method,
     err: BoxError,
 ) -> impl IntoResponse {
-    inc!(GatewayMetrics::FailCount);
     if err.is::<GatewayError>() {
         let err = err.downcast::<GatewayError>().unwrap();
         return maybe_html_error(*err, method, request_headers);

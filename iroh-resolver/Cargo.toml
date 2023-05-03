@@ -22,7 +22,6 @@ bs58.workspace = true
 bytes.workspace = true
 cid.workspace = true
 futures.workspace = true
-iroh-metrics = { workspace = true, features = ["resolver", "gateway"] }
 iroh-util.workspace = true
 iroh-unixfs.workspace = true
 libipld.workspace = true

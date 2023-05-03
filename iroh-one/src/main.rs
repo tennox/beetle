@@ -3,7 +3,7 @@ use std::sync::Arc;
 #[allow(unused_imports)]
 use anyhow::{anyhow, Result};
 use clap::Parser;
-use iroh_gateway::{bad_bits::BadBits, core::Core, metrics};
+use iroh_gateway::{bad_bits::BadBits, core::Core};
 #[cfg(not(target_os = "android"))]
 use iroh_one::config::CONFIG_FILE_NAME;
 #[cfg(all(feature = "http-uds-gateway", unix))]
@@ -14,9 +14,9 @@ use iroh_one::{
 };
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_types::Addr;
+use iroh_unixfs::content_loader::{FullLoader, FullLoaderConfig};
 #[cfg(not(target_os = "android"))]
 use iroh_util::iroh_config_path;
-use iroh_unixfs::content_loader::{FullLoader, FullLoaderConfig};
 use iroh_util::lock::ProgramLock;
 use iroh_util::make_config;
 use tokio::sync::RwLock;
@@ -84,10 +84,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    config.metrics = metrics::metrics_config_with_compile_time_info(config.metrics);
     println!("{config:#?}");
-
-    let metrics_config = config.metrics.clone();
 
     let gateway_rpc_addr = config
         .gateway
@@ -119,10 +116,6 @@ async fn main() -> Result<()> {
         config.gateway.dns_resolver,
     )
     .await?;
-
-    let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config)
-        .await
-        .expect("failed to initialize metrics");
 
     let shared_state2 = Arc::clone(&shared_state);
     let core_task = tokio::spawn(async move {
@@ -170,6 +163,5 @@ async fn main() -> Result<()> {
     uds_server_task.abort();
     core_task.abort();
 
-    metrics_handle.shutdown();
     Ok(())
 }

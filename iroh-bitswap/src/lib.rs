@@ -75,19 +75,14 @@ pub struct Bitswap<S: Store> {
     _workers: Arc<Vec<JoinHandle<()>>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum PeerState {
     Connected(ConnectionId),
     Responsive(ConnectionId, ProtocolId),
     Unresponsive,
+    #[default]
     Disconnected,
     DialFailure(Instant),
-}
-
-impl Default for PeerState {
-    fn default() -> Self {
-        PeerState::Disconnected
-    }
 }
 
 impl PeerState {

@@ -58,11 +58,8 @@ impl<T: tokio::io::AsyncRead + 'static + std::marker::Send> DirNode<T> {
             index = self.add_subdir(&name);
         }
 
-        match self.entries[index as usize] {
-            TreeNode::Dir(ref mut dir) => {
-                dir.ensure_subdirs_and_file(names, content);
-            }
-            _ => {}
+        if let TreeNode::Dir(ref mut dir) = self.entries[index as usize] {
+            dir.ensure_subdirs_and_file(names, content);
         }
     }
 

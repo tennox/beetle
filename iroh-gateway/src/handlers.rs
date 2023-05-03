@@ -541,8 +541,8 @@ fn protocol_handler_redirect(uri_param: String) -> Result<GatewayResponse, Gatew
     }
     let mut uri_path = u.path().to_string();
     let uri_query = u.query();
-    if uri_query.is_some() {
-        let encoded_query = encode(uri_query.unwrap());
+    if let Some(uri_query) = uri_query {
+        let encoded_query = encode(uri_query);
         write!(uri_path, "?{encoded_query}")
             .map_err(|e| GatewayError::new(StatusCode::BAD_REQUEST, &e.to_string()))?;
     }

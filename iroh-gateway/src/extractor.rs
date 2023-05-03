@@ -37,7 +37,7 @@ where
     type Rejection = Response;
 
     async fn from_request(req: Request<B>, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(if is_multipart(&req.headers()) {
+        Ok(if is_multipart(req.headers()) {
             let multipart: Multipart = req.extract().await.map_err(IntoResponse::into_response)?;
             Self::Multiple(multipart)
         } else {

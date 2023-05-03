@@ -161,7 +161,7 @@ impl<T: ContentLoader + std::marker::Unpin> Client<T> {
         // TODO: Find out what a good buffer size is here.
         let (writer, reader) = tokio::io::duplex(1024 * 64);
         let body = axum::body::StreamBody::new(ReaderStream::new(reader));
-        let client = self.clone();
+        let client = self;
         tokio::task::spawn(async move {
             if let Err(e) = fetch_car_recursive(&client.resolver, path, writer).await {
                 warn!("failed to load recursively: {:?}", e);

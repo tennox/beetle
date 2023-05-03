@@ -443,14 +443,13 @@ impl<'a> WriteStore<'a> {
 
 impl<'a> ReadStore<'a> {
     fn get(&self, cid: &Cid) -> Result<Option<DBPinnableSlice<'a>>> {
-        let res = match self.get_id(cid)? {
+        match self.get_id(cid)? {
             Some(id) => {
                 let maybe_blob = self.get_by_id(id)?;
                 Ok(maybe_blob)
             }
             None => Ok(None),
-        };
-        res
+        }
     }
 
     fn get_size(&self, cid: &Cid) -> Result<Option<usize>> {
@@ -477,14 +476,13 @@ impl<'a> ReadStore<'a> {
     }
 
     fn get_links(&self, cid: &Cid) -> Result<Option<Vec<Cid>>> {
-        let res = match self.get_id(cid)? {
+        match self.get_id(cid)? {
             Some(id) => {
                 let maybe_links = self.get_links_by_id(id)?;
                 Ok(maybe_links)
             }
             None => Ok(None),
-        };
-        res
+        }
     }
 
     fn get_id(&self, cid: &Cid) -> Result<Option<u64>> {

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use ahash::{AHashMap, AHashSet};
 use cid::Cid;
+use log::debug;
 use tokio::sync::RwLock;
-use tracing::debug;
 
 use crate::Block;
 

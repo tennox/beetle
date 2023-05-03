@@ -28,9 +28,9 @@ iroh-localops.workspace = true
 iroh-rpc-client.workspace = true
 iroh-util.workspace = true
 iroh-unixfs.workspace = true
+log.workspace = true
 relative-path = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 sysinfo.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util"] }
-tracing.workspace = true
 which.workspace = true

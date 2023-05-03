@@ -20,7 +20,6 @@ pub struct GatewayError {
 }
 
 impl GatewayError {
-    #[tracing::instrument()]
     pub fn new(status_code: StatusCode, message: &str) -> GatewayError {
         GatewayError {
             status_code,

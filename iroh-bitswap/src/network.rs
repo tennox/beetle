@@ -10,8 +10,8 @@ use anyhow::{anyhow, bail, Context as _, Result};
 use cid::Cid;
 use futures::Stream;
 use libp2p::{core::connection::ConnectionId, PeerId};
+use log::{debug, error, info, trace};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, info, trace};
 
 use crate::{message::BitswapMessage, protocol::ProtocolId, BitswapEvent};
 

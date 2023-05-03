@@ -18,10 +18,10 @@ futures.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true
 libp2p = { workspace = true, features = ["gossipsub"] }
+log.workspace = true
 quic-rpc = { workspace = true, features = ["http2"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync"] }
-tracing.workspace = true
 
 [dev-dependencies]
 tokio-stream = { workspace = true, features = ["net"] }

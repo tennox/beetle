@@ -5,10 +5,10 @@ use anyhow::Result;
 use cid::Cid;
 use config::ValueKind;
 use libp2p::{Multiaddr, PeerId};
+use log::trace;
 use multihash::Multihash;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
 use url::Url;
 
 /// Public endpoint of the indexer nodes.

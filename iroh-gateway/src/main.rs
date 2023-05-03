@@ -78,8 +78,8 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     {
         match iroh_util::increase_fd_limit() {
-            Ok(soft) => tracing::debug!("NOFILE limit: soft = {}", soft),
-            Err(err) => tracing::error!("Error increasing NOFILE limit: {}", err),
+            Ok(soft) => log::debug!("NOFILE limit: soft = {}", soft),
+            Err(err) => log::error!("Error increasing NOFILE limit: {}", err),
         }
     }
 

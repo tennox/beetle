@@ -7,10 +7,10 @@ use futures::StreamExt;
 use iroh_p2p::{GossipsubEvent, NetworkEvent};
 use iroh_unixfs::builder::{DirectoryBuilder, FileBuilder};
 use libp2p::gossipsub::Sha256Topic;
+use log::{debug, info, warn};
 use rand::Rng;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
 
 use crate::{
     p2p_node::{P2pNode, Ticket},

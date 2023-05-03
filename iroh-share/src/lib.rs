@@ -40,18 +40,12 @@ mod tests {
     use iroh_unixfs::builder::{DirectoryBuilder, FileBuilder};
     use rand::RngCore;
     use tokio::io::AsyncReadExt;
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
     use receiver as r;
     use sender as s;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_transfer() -> Result<()> {
-        tracing_subscriber::registry()
-            .with(fmt::layer().pretty())
-            .with(EnvFilter::from_default_env())
-            .init();
-
         transfer_file().await.context("file")?;
         tokio::time::sleep(Duration::from_secs(1)).await;
         transfer_dir().await.context("dir")?;

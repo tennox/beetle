@@ -5,12 +5,12 @@ use anyhow::{anyhow, ensure, Result};
 use cid::Cid;
 use futures::{future, stream, StreamExt};
 use libp2p::PeerId;
+use log::{debug, error, info, warn};
 use tokio::{
     sync::oneshot,
     task::JoinHandle,
     time::{Instant, Sleep},
 };
-use tracing::{debug, error, info, warn};
 
 use crate::{network::Network, Block};
 

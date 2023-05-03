@@ -16,11 +16,11 @@ ctrlc.workspace = true
 dirs-next.workspace = true
 futures.workspace = true
 humansize.workspace = true
+log.workspace = true
 rlimit.workspace = true
 serde = { workspace = true, features = ["derive"] }
 sysinfo.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 temp-env.workspace = true

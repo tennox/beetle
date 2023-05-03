@@ -21,9 +21,9 @@ use iroh_unixfs::{
 use libipld::codec::Encode;
 use libipld::prelude::Codec as _;
 use libipld::{Ipld, IpldCodec};
+use log::{debug, trace, warn};
 use tokio::io::{AsyncRead, AsyncSeek};
 use tokio::task::JoinHandle;
-use tracing::{debug, trace, warn};
 
 use crate::dns_resolver::{Config, DnsResolver};
 
@@ -625,7 +625,6 @@ impl<T: ContentLoader> Resolver<T> {
         &self.loader
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn resolve_recursive_with_paths(
         &self,
         root: Path,
@@ -680,7 +679,6 @@ impl<T: ContentLoader> Resolver<T> {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn resolve_recursive(&self, root: Path) -> impl Stream<Item = Result<Out>> {
         let this = self.clone();
         self.resolve_recursive_mapped(root, None, move |cid, ctx| {
@@ -690,7 +688,7 @@ impl<T: ContentLoader> Resolver<T> {
     }
 
     /// Resolve a path recursively and yield the raw bytes plus metadata.
-    #[tracing::instrument(skip(self))]
+
     pub fn resolve_recursive_raw(
         &self,
         root: Path,
@@ -708,7 +706,6 @@ impl<T: ContentLoader> Resolver<T> {
     }
 
     /// Resolve a path recursively and supply a closure to resolve cids to outputs.
-    #[tracing::instrument(skip(self, resolve))]
     pub fn resolve_recursive_mapped<O, M, F>(
         &self,
         root: Path,
@@ -767,7 +764,7 @@ impl<T: ContentLoader> Resolver<T> {
     }
 
     /// Resolves through a given path, returning the [`Cid`] and raw bytes of the final leaf.
-    #[tracing::instrument(skip(self))]
+
     pub async fn resolve(&self, path: Path) -> Result<Out> {
         let ctx = LoaderContext::from_path(self.next_id(), self.session_closer.clone());
 
@@ -776,7 +773,7 @@ impl<T: ContentLoader> Resolver<T> {
 
     /// Resolves through a given path, returning the [`Cid`] and raw bytes of the final leaf.
     /// Forces the RAW codec.
-    #[tracing::instrument(skip(self))]
+
     pub async fn resolve_raw(&self, path: Path) -> Result<Out> {
         let ctx = LoaderContext::from_path(self.next_id(), self.session_closer.clone());
 
@@ -850,7 +847,6 @@ impl<T: ContentLoader> Resolver<T> {
     }
 
     /// Resolves through both DagPb and nested UnixFs DAGs.
-    #[tracing::instrument(skip(self, loaded_cid))]
     async fn resolve_dag_pb_or_unixfs(
         &self,
         root_path: Path,
@@ -898,7 +894,6 @@ impl<T: ContentLoader> Resolver<T> {
         }
     }
 
-    #[tracing::instrument(skip(self, loaded_cid))]
     async fn resolve_ipld(
         &self,
         root_path: Path,
@@ -949,7 +944,6 @@ impl<T: ContentLoader> Resolver<T> {
         })
     }
 
-    #[tracing::instrument(skip(self, root))]
     async fn resolve_ipld_path(
         &self,
         _cid: Cid,
@@ -989,7 +983,6 @@ impl<T: ContentLoader> Resolver<T> {
         Ok((codec, current))
     }
 
-    #[tracing::instrument(skip(self))]
     async fn load_ipld_link(&self, cid: Cid, ctx: &mut LoaderContext) -> Result<(IpldCodec, Ipld)> {
         let codec: IpldCodec = cid.codec().try_into()?;
 
@@ -1002,7 +995,6 @@ impl<T: ContentLoader> Resolver<T> {
         Ok((codec, ipld))
     }
 
-    #[tracing::instrument(skip(self, name))]
     fn get_dagpb_link<I: Into<String>>(&self, ipld: Ipld, name: I) -> Result<Ipld> {
         let name = name.into();
         let links = ipld
@@ -1035,8 +1027,7 @@ impl<T: ContentLoader> Resolver<T> {
         anyhow::bail!("could not find DagPb link '{}'", name);
     }
 
-    #[tracing::instrument(skip(self))]
-    async fn resolve_path_to_cid(&self, root: &Path, ctx: &mut LoaderContext) -> Result<Cid> {
+    async fn resolve_path_to_cid(&self, root: &Path, _ctx: &mut LoaderContext) -> Result<Cid> {
         let mut current = root.clone();
 
         // maximum cursion of ipns lookups
@@ -1069,25 +1060,21 @@ impl<T: ContentLoader> Resolver<T> {
         bail!("cannot resolve {}, too many recursive lookups", root);
     }
 
-    #[tracing::instrument(skip(self))]
     async fn resolve_root(&self, root: &Path, ctx: &mut LoaderContext) -> Result<(Cid, LoadedCid)> {
         let cid = self.resolve_path_to_cid(root, ctx).await?;
         let loaded_cid = self.load_cid(&cid, ctx).await?;
         Ok((cid, loaded_cid))
     }
 
-    #[tracing::instrument(skip(self))]
     async fn load_cid(&self, cid: &Cid, ctx: &mut LoaderContext) -> Result<LoadedCid> {
         self.loader.load_cid(cid, ctx).await
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn has_cid(&self, cid: &Cid) -> Result<bool> {
         self.loader.has_cid(cid).await
     }
 
-    #[tracing::instrument(skip(self))]
-    async fn load_ipns_record(&self, cid: &Cid) -> Result<Cid> {
+    async fn load_ipns_record(&self, _cid: &Cid) -> Result<Cid> {
         todo!()
     }
 }

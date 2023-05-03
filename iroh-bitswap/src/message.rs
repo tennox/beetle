@@ -4,9 +4,9 @@ use std::fmt::{self, Debug};
 use ahash::AHashMap;
 use bytes::Bytes;
 use cid::Cid;
+use log::{trace, warn};
 use prost::Message;
 use tokio::time::Instant;
-use tracing::{trace, warn};
 
 use crate::block::Block;
 use crate::error::Error;

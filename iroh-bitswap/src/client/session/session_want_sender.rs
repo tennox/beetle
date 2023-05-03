@@ -4,8 +4,8 @@ use ahash::{AHashMap, AHashSet};
 use anyhow::Result;
 use cid::Cid;
 use libp2p::PeerId;
+use log::{debug, error, info, warn};
 use tokio::{sync::oneshot, task::JoinHandle};
-use tracing::{debug, error, info, warn};
 
 use crate::client::{
     block_presence_manager::BlockPresenceManager, peer_manager::PeerManager,

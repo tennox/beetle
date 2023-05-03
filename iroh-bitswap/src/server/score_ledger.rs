@@ -7,11 +7,11 @@ use std::{
 use ahash::AHashMap;
 use anyhow::{anyhow, Result};
 use libp2p::PeerId;
+use log::error;
 use tokio::{
     sync::{oneshot, RwLock},
     task::JoinHandle,
 };
-use tracing::error;
 
 use crate::server::ewma::ewma;
 

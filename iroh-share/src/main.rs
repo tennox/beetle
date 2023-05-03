@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand};
 use futures::stream::StreamExt;
 use iroh_share::{ProgressEvent, Receiver, Sender, Ticket};
 use tokio::io::AsyncWriteExt;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -35,11 +34,6 @@ enum Commands {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    tracing_subscriber::registry()
-        .with(fmt::layer().pretty())
-        .with(EnvFilter::from_default_env())
-        .init();
-
     let args = Args::parse();
 
     match args.command {

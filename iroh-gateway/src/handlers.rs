@@ -22,19 +22,11 @@ use serde_json::{
     json,
     value::{Map, Value as Json},
 };
-use std::{
-    collections::HashMap,
-    fmt::Write,
-    io,
-    ops::Range,
-    sync::Arc,
-    time::{self, Duration},
-};
+use std::{collections::HashMap, fmt::Write, io, ops::Range, sync::Arc, time::Duration};
 
 use iroh_resolver::Path;
 use tower::{ServiceBuilder, ServiceExt};
-use tower_http::{compression::CompressionLayer, trace::TraceLayer};
-use tracing::info_span;
+use tower_http::compression::CompressionLayer;
 use url::Url;
 use urlencoding::encode;
 
@@ -137,16 +129,6 @@ pub fn get_app_routes<T: ContentLoader + Unpin>(state: &Arc<State<T>>) -> Router
                 .concurrency_limit(2048 * 1024)
                 .timeout(Duration::from_secs(120))
                 .into_inner(),
-        )
-        .layer(
-            // Tracing span for each request
-            TraceLayer::new_for_http().make_span_with(|request: &http::Request<Body>| {
-                info_span!(
-                    "request",
-                    method = %request.method(),
-                    uri = %request.uri(),
-                )
-            }),
         )
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024)) // Limit body requests to 500MB.
 }
@@ -274,7 +256,6 @@ pub async fn handler<T: ContentLoader + Unpin>(
     http_req: HttpRequest<Body>,
     subdomain_mode: bool,
 ) -> Result<GatewayResponse, GatewayError> {
-    let start_time = time::Instant::now();
     let mut response_headers = HeaderMap::new();
     match request_preprocessing(
         &state,
@@ -294,17 +275,15 @@ pub async fn handler<T: ContentLoader + Unpin>(
             }
             Method::GET => {
                 if query_params.recursive.unwrap_or_default() {
-                    serve_car_recursive(&req, state, response_headers, start_time).await
+                    serve_car_recursive(&req, state, response_headers).await
                 } else {
                     match req.format {
                         ResponseFormat::Raw => {
-                            serve_raw(&req, state, response_headers, &http_req, start_time).await
+                            serve_raw(&req, state, response_headers, &http_req).await
                         }
-                        ResponseFormat::Car => {
-                            serve_car(&req, state, response_headers, start_time).await
-                        }
+                        ResponseFormat::Car => serve_car(&req, state, response_headers).await,
                         ResponseFormat::Fs(_) => {
-                            serve_fs(&req, state, response_headers, &http_req, start_time).await
+                            serve_fs(&req, state, response_headers, &http_req).await
                         }
                     }
                 }
@@ -317,7 +296,6 @@ pub async fn handler<T: ContentLoader + Unpin>(
     }
 }
 
-#[tracing::instrument(skip(state))]
 pub async fn subdomain_handler<T: ContentLoader + Unpin>(
     Extension(state): Extension<Arc<State<T>>>,
     method: Method,
@@ -351,7 +329,6 @@ pub async fn subdomain_handler<T: ContentLoader + Unpin>(
     Ok(res)
 }
 
-#[tracing::instrument(skip(state))]
 pub async fn path_handler<T: ContentLoader + Unpin>(
     Extension(state): Extension<Arc<State<T>>>,
     method: Method,
@@ -386,7 +363,6 @@ pub async fn path_handler<T: ContentLoader + Unpin>(
     }
 }
 
-#[tracing::instrument(skip(state))]
 pub async fn post_single_handler<T: ContentLoader + std::marker::Unpin>(
     state: Arc<State<T>>,
     request_headers: HeaderMap,
@@ -448,10 +424,8 @@ pub async fn post_single_handler<T: ContentLoader + std::marker::Unpin>(
     Ok(GatewayResponse::created(&location, headers))
 }
 
-#[tracing::instrument(skip(state))]
 pub async fn post_multipart_handler<T: ContentLoader + std::marker::Unpin>(
     state: Arc<State<T>>,
-    request_headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<GatewayResponse, GatewayError> {
     // If this gateway is not writable, return a 400 error.
@@ -498,27 +472,22 @@ pub async fn post_multipart_handler<T: ContentLoader + std::marker::Unpin>(
     Ok(GatewayResponse::created(&location, headers))
 }
 
-#[tracing::instrument(skip(state))]
 pub async fn post_handler<T: ContentLoader + std::marker::Unpin>(
     Extension(state): Extension<Arc<State<T>>>,
     request_headers: HeaderMap,
     multipart: MaybeMultipart,
 ) -> Result<GatewayResponse, GatewayError> {
     match multipart {
-        MaybeMultipart::Multiple(multipart) => {
-            post_multipart_handler(state, request_headers, multipart).await
-        }
+        MaybeMultipart::Multiple(multipart) => post_multipart_handler(state, multipart).await,
         MaybeMultipart::Single(stream) => post_single_handler(state, request_headers, stream).await,
     }
 }
 
-#[tracing::instrument()]
 pub async fn health_check() -> String {
     "OK".to_string()
 }
 
 /// Some basic info about the service to respond from a `GET /info` request.
-#[tracing::instrument]
 pub async fn info() -> String {
     format!(
         "{bin} {version} ({git})\n\n{description}\n{license}\n{url}",
@@ -553,7 +522,6 @@ pub async fn stylesheet_icons() -> (HeaderMap, &'static str) {
     (headers, ICONS_STYLESHEET)
 }
 
-#[tracing::instrument()]
 fn protocol_handler_redirect(uri_param: String) -> Result<GatewayResponse, GatewayError> {
     let u = match Url::parse(&uri_param) {
         Ok(u) => u,
@@ -583,7 +551,6 @@ fn protocol_handler_redirect(uri_param: String) -> Result<GatewayResponse, Gatew
     Ok(GatewayResponse::redirect_permanently(&redirect_uri))
 }
 
-#[tracing::instrument()]
 fn service_worker_check(
     request_headers: &HeaderMap,
     content_path: &str,
@@ -600,7 +567,6 @@ fn service_worker_check(
     Ok(())
 }
 
-#[tracing::instrument()]
 fn unsupported_header_check(request_headers: &HeaderMap) -> Result<(), GatewayError> {
     if request_headers.contains_key(&HEADER_X_IPFS_GATEWAY_PREFIX) {
         return Err(GatewayError::new(
@@ -611,7 +577,6 @@ fn unsupported_header_check(request_headers: &HeaderMap) -> Result<(), GatewayEr
     Ok(())
 }
 
-#[tracing::instrument()]
 fn redirect_path_handlers(host: &str, path: &Path, request_headers: &HeaderMap) -> GatewayResponse {
     let target_host = request_headers
         .get(&HEADER_X_FORWARDED_HOST)
@@ -632,7 +597,6 @@ fn redirect_path_handlers(host: &str, path: &Path, request_headers: &HeaderMap) 
     ))
 }
 
-#[tracing::instrument()]
 async fn handle_only_if_cached<T: ContentLoader>(
     request_headers: &HeaderMap,
     state: &State<T>,
@@ -681,7 +645,6 @@ pub async fn check_bad_bits<T: ContentLoader>(
     false
 }
 
-#[tracing::instrument()]
 fn etag_check(
     request_headers: &HeaderMap,
     resolved_cid: &CidOrDomain,
@@ -705,13 +668,11 @@ fn etag_check(
     None
 }
 
-#[tracing::instrument()]
 async fn serve_raw<T: ContentLoader + Unpin>(
     req: &IpfsRequest,
     state: Arc<State<T>>,
     mut headers: HeaderMap,
     http_req: &HttpRequest<Body>,
-    start_time: time::Instant,
 ) -> Result<GatewayResponse, GatewayError> {
     let range: Option<Range<u64>> = if http_req.headers().contains_key(RANGE) {
         parse_range_header(http_req.headers().get(RANGE).unwrap())
@@ -724,7 +685,6 @@ async fn serve_raw<T: ContentLoader + Unpin>(
         .get_file(
             req.resolved_path.clone(),
             Some(req.path_metadata.clone()),
-            start_time,
             range.clone(),
         )
         .await
@@ -768,12 +728,10 @@ async fn serve_raw<T: ContentLoader + Unpin>(
     }
 }
 
-#[tracing::instrument()]
 async fn serve_car<T: ContentLoader + Unpin>(
     req: &IpfsRequest,
     state: Arc<State<T>>,
     mut headers: HeaderMap,
-    start_time: time::Instant,
 ) -> Result<GatewayResponse, GatewayError> {
     // TODO: handle car versions
     // FIXME: we currently only retrieve full cids
@@ -782,7 +740,6 @@ async fn serve_car<T: ContentLoader + Unpin>(
         .get_file(
             req.resolved_path.clone(),
             Some(req.path_metadata.clone()),
-            start_time,
             None,
         )
         .await
@@ -814,17 +771,15 @@ async fn serve_car<T: ContentLoader + Unpin>(
     }
 }
 
-#[tracing::instrument()]
 async fn serve_car_recursive<T: ContentLoader + Unpin>(
     req: &IpfsRequest,
     state: Arc<State<T>>,
     mut headers: HeaderMap,
-    start_time: time::Instant,
 ) -> Result<GatewayResponse, GatewayError> {
     let body = state
         .client
         .clone()
-        .get_car_recursive(req.resolved_path.clone(), start_time)
+        .get_car_recursive(req.resolved_path.clone())
         .await
         .map_err(|e| GatewayError::new(StatusCode::INTERNAL_SERVER_ERROR, &e))?;
 
@@ -845,14 +800,12 @@ async fn serve_car_recursive<T: ContentLoader + Unpin>(
     Ok(GatewayResponse::new(StatusCode::OK, body, headers))
 }
 
-#[tracing::instrument()]
 #[async_recursion]
 async fn serve_fs<T: ContentLoader + Unpin>(
     req: &IpfsRequest,
     state: Arc<State<T>>,
     mut headers: HeaderMap,
     http_req: &HttpRequest<Body>,
-    start_time: time::Instant,
 ) -> Result<GatewayResponse, GatewayError> {
     let range: Option<Range<u64>> = if http_req.headers().contains_key(RANGE) {
         parse_range_header(http_req.headers().get(RANGE).unwrap())
@@ -865,7 +818,6 @@ async fn serve_fs<T: ContentLoader + Unpin>(
         .get_file(
             req.resolved_path.clone(),
             Some(req.path_metadata.clone()),
-            start_time,
             range.clone(),
         )
         .await
@@ -880,11 +832,9 @@ async fn serve_fs<T: ContentLoader + Unpin>(
                 .try_collect()
                 .await;
             match dir_list {
-                Ok(dir_list) => {
-                    serve_fs_dir(&dir_list, req, state, headers, http_req, start_time).await
-                }
+                Ok(dir_list) => serve_fs_dir(&dir_list, req, state, headers, http_req).await,
                 Err(e) => {
-                    tracing::warn!("failed to read dir: {:?}", e);
+                    log::warn!("failed to read dir: {:?}", e);
                     Err(GatewayError::new(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "failed to read dir listing",
@@ -970,14 +920,12 @@ async fn serve_fs<T: ContentLoader + Unpin>(
     }
 }
 
-#[tracing::instrument()]
 async fn serve_fs_dir<T: ContentLoader + Unpin>(
     dir_list: &[Link],
     req: &IpfsRequest,
     state: Arc<State<T>>,
     mut headers: HeaderMap,
     http_req: &HttpRequest<Body>,
-    start_time: std::time::Instant,
 ) -> Result<GatewayResponse, GatewayError> {
     let force_dir = req.query_params.force_dir.unwrap_or(false);
     let has_index = dir_list.iter().any(|l| {
@@ -997,7 +945,7 @@ async fn serve_fs_dir<T: ContentLoader + Unpin>(
         }
         let mut new_req = req.clone();
         new_req.resolved_path.push("index.html");
-        return serve_fs(&new_req, state, headers, http_req, start_time).await;
+        return serve_fs(&new_req, state, headers, http_req).await;
     }
 
     headers.insert(CONTENT_TYPE, HeaderValue::from_str("text/html").unwrap());
@@ -1077,7 +1025,7 @@ async fn serve_fs_dir<T: ContentLoader + Unpin>(
     ))
 }
 
-// #[tracing::instrument()]
+//
 pub async fn request_middleware<B>(
     request: http::Request<B>,
     next: middleware::Next<B>,
@@ -1101,7 +1049,6 @@ pub fn maybe_html_error(err: GatewayError, method: Method, headers: HeaderMap) -
     err.with_method(method)
 }
 
-#[tracing::instrument()]
 pub async fn middleware_error_handler(
     request_headers: HeaderMap,
     method: Method,

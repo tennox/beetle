@@ -18,7 +18,7 @@ use libp2p::relay;
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{autonat, dcutr};
-use tracing::{info, warn};
+use log::{info, warn};
 
 pub(crate) use self::event::Event;
 use self::peer_manager::PeerManager;

@@ -15,7 +15,7 @@ use cid::{
     Cid,
 };
 use config::{Config, ConfigError, Environment, File, Map, Source, Value, ValueKind};
-use tracing::debug;
+use log::debug;
 
 pub mod exitcodes;
 pub mod human;

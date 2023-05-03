@@ -12,7 +12,7 @@ use libp2p::core::{
     transport::{ListenerId, TransportError, TransportEvent},
     Transport,
 };
-use tracing::log::debug;
+use log::debug;
 
 // Wrapper around a libp2p `Transport` dropping all dial requests to non-global
 // IP addresses.

@@ -5,8 +5,8 @@ use std::{fmt::Debug, sync::Arc};
 use ahash::AHashSet;
 use keyed_priority_queue::{Entry, KeyedPriorityQueue};
 use libp2p::PeerId;
+use log::warn;
 use tokio::sync::Mutex;
-use tracing::warn;
 
 mod peer_task;
 mod peer_tracker;

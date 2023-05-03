@@ -6,7 +6,7 @@ use cid::Cid;
 use derivative::Derivative;
 use futures::future::BoxFuture;
 use libp2p::PeerId;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 
 use crate::{block::Block, message::BitswapMessage, network::Network, Store};
 

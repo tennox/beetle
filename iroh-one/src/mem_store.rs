@@ -2,8 +2,8 @@
 use anyhow::Context;
 use iroh_rpc_types::store::StoreAddr;
 use iroh_store::{rpc, Config, Store};
+use log::info;
 use tokio::task::JoinHandle;
-use tracing::info;
 
 /// Starts a new store, using the given mem rpc channel.
 pub async fn start(rpc_addr: StoreAddr, config: Config) -> anyhow::Result<JoinHandle<()>> {

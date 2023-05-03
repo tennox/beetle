@@ -19,12 +19,16 @@ use iroh_unixfs::content_loader::{FullLoader, FullLoaderConfig};
 use iroh_util::iroh_config_path;
 use iroh_util::lock::ProgramLock;
 use iroh_util::make_config;
+use log::{debug, error};
 use tokio::sync::RwLock;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    #[cfg(not(target_os = "android"))]
+    env_logger::init();
+
     #[cfg(target_os = "android")]
-    android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Debug));
+    android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Info));
 
     let mut lock = ProgramLock::new("iroh-one")?;
     lock.acquire_or_exit();
@@ -56,8 +60,8 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     {
         match iroh_util::increase_fd_limit() {
-            Ok(soft) => tracing::debug!("NOFILE limit: soft = {}", soft),
-            Err(err) => tracing::error!("Error increasing NOFILE limit: {}", err),
+            Ok(soft) => debug!("NOFILE limit: soft = {}", soft),
+            Err(err) => error!("Error increasing NOFILE limit: {}", err),
         }
     }
 
@@ -149,7 +153,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             if let Some(uds_server) = uds::uds_server(shared_state, path) {
                 if let Err(err) = uds_server.await {
-                    tracing::error!("Failure in http uds handler: {}", err);
+                    error!("Failure in http uds handler: {}", err);
                 }
             }
         })

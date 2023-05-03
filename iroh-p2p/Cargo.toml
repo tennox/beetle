@@ -24,6 +24,7 @@ iroh-bitswap.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true
+log.workspace = true
 lru.workspace = true
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -31,8 +32,6 @@ ssh-key = { workspace = true, features = ["ed25519", "std", "rand_core"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["fs", "time", "sync", "macros"] }
 tokio-stream.workspace = true
-tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 zeroize.workspace = true
 
 [dependencies.libp2p]

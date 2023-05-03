@@ -1,7 +1,7 @@
 use ahash::{AHashMap, AHashSet};
 use cid::Cid;
 use libp2p::PeerId;
-use tracing::{debug, error};
+use log::{debug, error};
 
 use super::message_queue::MessageQueue;
 use super::peer_manager::PeerState;

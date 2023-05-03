@@ -12,10 +12,10 @@ use iroh_unixfs::{
     parse_links, LoadedCid, Source,
 };
 use libp2p::{Multiaddr, PeerId};
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Receiver;
 use tokio::{sync::Mutex, task::JoinHandle};
-use tracing::{error, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Ticket {

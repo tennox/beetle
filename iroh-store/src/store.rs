@@ -94,7 +94,7 @@ struct CodeAndId {
 
 impl Store {
     /// Creates a new database.
-    #[tracing::instrument]
+
     pub async fn create(config: Config) -> Result<Self> {
         let (mut options, cache) = default_options();
         options.create_if_missing(true);
@@ -133,7 +133,7 @@ impl Store {
     }
 
     /// Opens an existing database.
-    #[tracing::instrument]
+
     pub async fn open(config: Config) -> Result<Self> {
         let (mut options, cache) = default_options();
         options.create_if_missing(false);
@@ -177,7 +177,6 @@ impl Store {
         })
     }
 
-    #[tracing::instrument(skip(self, links, blob))]
     pub fn put<T: AsRef<[u8]>, L>(&self, cid: Cid, blob: T, links: L) -> Result<()>
     where
         L: IntoIterator<Item = Cid>,
@@ -185,42 +184,34 @@ impl Store {
         self.write_store()?.put(cid, blob, links)
     }
 
-    #[tracing::instrument(skip(self, blocks))]
     pub fn put_many(&self, blocks: impl IntoIterator<Item = (Cid, Bytes, Vec<Cid>)>) -> Result<()> {
         self.write_store()?.put_many(blocks)
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn get_blob_by_hash(&self, hash: &Multihash) -> Result<Option<DBPinnableSlice<'_>>> {
         self.read_store()?.get_blob_by_hash(hash)
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn has_blob_for_hash(&self, hash: &Multihash) -> Result<bool> {
         self.read_store()?.has_blob_for_hash(hash)
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn get(&self, cid: &Cid) -> Result<Option<DBPinnableSlice<'_>>> {
         self.read_store()?.get(cid)
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn get_size(&self, cid: &Cid) -> Result<Option<usize>> {
         self.read_store()?.get_size(cid)
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn has(&self, cid: &Cid) -> Result<bool> {
         self.read_store()?.has(cid)
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn get_links(&self, cid: &Cid) -> Result<Option<Vec<Cid>>> {
         self.read_store()?.get_links(cid)
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn consistency_check(&self) -> Result<Vec<String>> {
         self.read_store()?.consistency_check()
     }
@@ -384,7 +375,6 @@ impl<'a> WriteStore<'a> {
     }
 
     /// Takes a list of cids and gives them ids, which are both stored and then returned.
-    #[tracing::instrument(skip(self, cids))]
     fn ensure_id_many<I>(&mut self, cids: I) -> Result<Vec<u64>>
     where
         I: IntoIterator<Item = Cid>,
@@ -415,7 +405,6 @@ impl<'a> WriteStore<'a> {
         Ok(ids)
     }
 
-    #[tracing::instrument(skip(self))]
     fn next_id(&mut self) -> u64 {
         let id = *self.next_id;
         if let Some(next_id) = self.next_id.checked_add(1) {
@@ -426,7 +415,6 @@ impl<'a> WriteStore<'a> {
         id
     }
 
-    #[tracing::instrument(skip(self))]
     fn get_id(&self, cid: &Cid) -> Result<Option<u64>> {
         let id_key = id_key(cid);
         let maybe_id_bytes = self.db.get_pinned_cf(self.cf.id, id_key)?;
@@ -499,7 +487,6 @@ impl<'a> ReadStore<'a> {
         res
     }
 
-    #[tracing::instrument(skip(self))]
     fn get_id(&self, cid: &Cid) -> Result<Option<u64>> {
         let id_key = id_key(cid);
         let maybe_id_bytes = self.db.get_pinned_cf(self.cf.id, id_key)?;
@@ -549,7 +536,6 @@ impl<'a> ReadStore<'a> {
         Ok(None)
     }
 
-    #[tracing::instrument(skip(self))]
     fn has_blob_for_hash(&self, hash: &Multihash) -> Result<bool> {
         for elem in self.get_ids_for_hash(hash)? {
             let id = elem?.id;
@@ -561,21 +547,18 @@ impl<'a> ReadStore<'a> {
         Ok(false)
     }
 
-    #[tracing::instrument(skip(self))]
     fn get_by_id(&self, id: u64) -> Result<Option<DBPinnableSlice<'a>>> {
         let maybe_blob = self.db.get_pinned_cf(self.cf.blobs, id.to_be_bytes())?;
 
         Ok(maybe_blob)
     }
 
-    #[tracing::instrument(skip(self))]
     fn get_size_by_id(&self, id: u64) -> Result<Option<usize>> {
         let maybe_blob = self.db.get_pinned_cf(self.cf.blobs, id.to_be_bytes())?;
         let maybe_size = maybe_blob.map(|b| b.len());
         Ok(maybe_size)
     }
 
-    #[tracing::instrument(skip(self))]
     fn get_links_by_id(&self, id: u64) -> Result<Option<Vec<Cid>>> {
         let id_bytes = id.to_be_bytes();
         // FIXME: can't use pinned because otherwise this can trigger alignment issues :/

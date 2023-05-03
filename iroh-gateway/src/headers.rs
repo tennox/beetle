@@ -7,12 +7,10 @@ use once_cell::sync::Lazy;
 use sha2::Digest;
 use std::{fmt::Write, ops::Range, time};
 
-#[tracing::instrument()]
 pub fn add_user_headers(headers: &mut HeaderMap, user_headers: HeaderMap) {
     headers.extend(user_headers.into_iter());
 }
 
-#[tracing::instrument()]
 pub fn add_content_type_headers(
     headers: &mut HeaderMap,
     name: &str,
@@ -41,7 +39,6 @@ pub fn add_content_type_headers(
     }
 }
 
-#[tracing::instrument()]
 pub fn add_content_disposition_headers(
     headers: &mut HeaderMap,
     filename: &str,
@@ -63,7 +60,6 @@ pub fn add_content_disposition_headers(
     name
 }
 
-#[tracing::instrument()]
 pub fn set_content_disposition_headers(headers: &mut HeaderMap, filename: &str, disposition: &str) {
     // TODO: handle non-ascii filenames https://github.com/ipfs/specs/blob/main/http-gateways/PATH_GATEWAY.md#content-disposition-response-header
     headers.insert(
@@ -72,7 +68,6 @@ pub fn set_content_disposition_headers(headers: &mut HeaderMap, filename: &str, 
     );
 }
 
-#[tracing::instrument()]
 pub fn add_content_range_headers(headers: &mut HeaderMap, range: Range<u64>, size: Option<u64>) {
     if range.end == 0 {
         // this should never happen as it is checked for in parse_range_header
@@ -109,7 +104,6 @@ pub fn parse_range_header(range: &HeaderValue) -> Option<Range<u64>> {
     })
 }
 
-#[tracing::instrument()]
 pub fn add_cache_control_headers(headers: &mut HeaderMap, metadata: &Metadata) {
     if metadata.path.typ() == PathType::Ipns {
         let lmdt: OffsetDateTime = time::SystemTime::now().into();
@@ -123,7 +117,6 @@ pub fn add_cache_control_headers(headers: &mut HeaderMap, metadata: &Metadata) {
     }
 }
 
-#[tracing::instrument()]
 pub fn add_content_length_header(headers: &mut HeaderMap, content_length: Option<u64>) {
     if let Some(content_length) = content_length {
         headers.insert(
@@ -133,7 +126,6 @@ pub fn add_content_length_header(headers: &mut HeaderMap, content_length: Option
     }
 }
 
-#[tracing::instrument()]
 pub fn add_ipfs_roots_headers(headers: &mut HeaderMap, metadata: &Metadata) {
     let mut roots = "".to_string();
     for rcid in &metadata.resolved_path {
@@ -143,12 +135,10 @@ pub fn add_ipfs_roots_headers(headers: &mut HeaderMap, metadata: &Metadata) {
     headers.insert(&HEADER_X_IPFS_ROOTS, HeaderValue::from_str(&roots).unwrap());
 }
 
-#[tracing::instrument()]
 pub fn set_etag_headers(headers: &mut HeaderMap, etag: String) {
     headers.insert(ETAG, HeaderValue::from_str(&etag).unwrap());
 }
 
-#[tracing::instrument()]
 pub fn add_etag_range(headers: &mut HeaderMap, range: Range<u64>) {
     if headers.contains_key(ETAG) {
         let etag = headers.get(ETAG).unwrap().to_str().unwrap();
@@ -158,7 +148,6 @@ pub fn add_etag_range(headers: &mut HeaderMap, range: Range<u64>) {
     }
 }
 
-#[tracing::instrument()]
 pub fn get_etag(cid: &CidOrDomain, response_format: Option<ResponseFormat>) -> String {
     match cid {
         CidOrDomain::Cid(cid) => {
@@ -178,7 +167,6 @@ pub fn get_etag(cid: &CidOrDomain, response_format: Option<ResponseFormat>) -> S
     }
 }
 
-#[tracing::instrument()]
 pub fn get_dir_etag(cid: &CidOrDomain) -> String {
     match cid {
         CidOrDomain::Cid(cid) => {
@@ -191,7 +179,6 @@ pub fn get_dir_etag(cid: &CidOrDomain) -> String {
     }
 }
 
-#[tracing::instrument()]
 pub fn etag_matches(inm: &str, cid_etag: &str) -> bool {
     let mut buf = inm.trim();
     loop {
@@ -217,7 +204,6 @@ pub fn etag_matches(inm: &str, cid_etag: &str) -> bool {
     false
 }
 
-#[tracing::instrument()]
 pub fn scan_etag(buf: &str) -> (&str, &str) {
     let s = buf.trim();
     let mut start = 0;
@@ -240,12 +226,10 @@ pub fn scan_etag(buf: &str) -> (&str, &str) {
     ("", "")
 }
 
-#[tracing::instrument()]
 pub fn etag_weak_match(etag: &str, cid_etag: &str) -> bool {
     etag.trim_start_matches("W/") == cid_etag.trim_start_matches("W/")
 }
 
-#[tracing::instrument()]
 pub fn get_filename(content_path: &str) -> String {
     content_path
         .split('/')

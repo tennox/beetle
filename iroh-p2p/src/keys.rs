@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt, TryStreamExt};
+use log::warn;
 use ssh_key::LineEnding;
 use tokio::fs;
-use tracing::warn;
 use zeroize::Zeroizing;
 
 /// Supported keypairs.

@@ -4,11 +4,11 @@ use ahash::{AHashMap, AHashSet};
 use anyhow::{anyhow, Result};
 use cid::Cid;
 use libp2p::PeerId;
+use log::{debug, error, info, warn};
 use tokio::{
     sync::{oneshot, Mutex, Notify, RwLock},
     task::JoinHandle,
 };
-use tracing::{debug, error, info, warn};
 
 use crate::{
     block::Block,

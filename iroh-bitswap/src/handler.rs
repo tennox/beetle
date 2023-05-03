@@ -20,9 +20,9 @@ use libp2p::swarm::{
     ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive,
     NegotiatedSubstream, SubstreamProtocol,
 };
+use log::{error, trace, warn};
 use smallvec::SmallVec;
 use tokio::sync::oneshot;
-use tracing::{error, trace, warn};
 
 use crate::{
     error::Error,

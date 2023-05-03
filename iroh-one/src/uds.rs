@@ -63,7 +63,7 @@ pub fn uds_server<T: ContentLoader + std::marker::Unpin>(
     let _ = std::fs::remove_file(&path);
     match UnixListener::bind(&path) {
         Ok(uds) => {
-            tracing::debug!("Binding to UDS at {}", path.display());
+            log::debug!("Binding to UDS at {}", path.display());
             let app = get_app_routes(&state);
             Some(
                 Server::builder(ServerAccept { uds })
@@ -71,7 +71,7 @@ pub fn uds_server<T: ContentLoader + std::marker::Unpin>(
             )
         }
         Err(err) => {
-            tracing::error!(
+            log::error!(
                 "Failed to bind http uds socket at {}: {}",
                 path.display(),
                 err

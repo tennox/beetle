@@ -87,7 +87,6 @@ impl ResponseFormat {
     }
 }
 
-#[tracing::instrument()]
 pub fn get_response_format(
     request_headers: &HeaderMap,
     query_format: &Option<String>,
@@ -128,7 +127,6 @@ impl IntoResponse for GatewayResponse {
 }
 
 impl GatewayResponse {
-    #[tracing::instrument(skip(body))]
     pub fn new<B>(status_code: StatusCode, body: B, headers: HeaderMap) -> GatewayResponse
     where
         B: 'static + HttpBody<Data = Bytes> + Send,

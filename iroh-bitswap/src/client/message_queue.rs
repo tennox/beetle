@@ -7,8 +7,8 @@ use ahash::AHashSet;
 use anyhow::{ensure, Result};
 use cid::Cid;
 use libp2p::PeerId;
+use log::{debug, error, warn};
 use tokio::{sync::mpsc, task::JoinHandle};
-use tracing::{debug, error, warn};
 
 use crate::{
     message::{BitswapMessage, Entry, WantType},

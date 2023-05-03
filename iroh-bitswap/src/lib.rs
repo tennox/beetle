@@ -22,9 +22,9 @@ use libp2p::swarm::{
     NotifyHandler, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
+use log::{debug, trace, warn};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tracing::{debug, trace, warn};
 
 use self::client::{Client, Config as ClientConfig};
 use self::message::BitswapMessage;
@@ -578,7 +578,7 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
                         response,
                         connection_id,
                     } => {
-                        tracing::debug!("send message {}", peer);
+                        log::debug!("send message {}", peer);
                         return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                             peer_id: peer,
                             handler: NotifyHandler::One(connection_id),
@@ -631,9 +631,8 @@ mod tests {
     use libp2p::tcp::{tokio::Transport as TcpTransport, Config as TcpConfig};
     use libp2p::yamux::YamuxConfig;
     use libp2p::{noise, PeerId, Swarm, Transport};
+    use log::{info, trace};
     use tokio::sync::{mpsc, RwLock};
-    use tracing::{info, trace};
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
     use super::*;
     use crate::Block;
@@ -747,11 +746,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_128_block() {
-        tracing_subscriber::registry()
-            .with(fmt::layer().pretty())
-            .with(EnvFilter::from_default_env())
-            .init();
-
         get_block::<128>().await;
     }
 

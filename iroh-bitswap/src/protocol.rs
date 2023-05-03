@@ -157,7 +157,7 @@ impl Encoder for BitswapCodec {
     type Error = BitswapHandlerError;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        tracing::trace!("sending message protocol: {:?}\n{:?}", self.protocol, item);
+        log::trace!("sending message protocol: {:?}\n{:?}", self.protocol, item);
 
         let message = match self.protocol {
             ProtocolId::Legacy | ProtocolId::Bitswap100 => item.encode_as_proto_v0(),

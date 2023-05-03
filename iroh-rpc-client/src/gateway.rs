@@ -26,13 +26,11 @@ impl GatewayClient {
         Ok(Self { client })
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn version(&self) -> Result<String> {
         let res = self.client.rpc(VersionRequest).await?;
         Ok(res.version)
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn check(&self) -> (StatusType, String) {
         match self.version().await {
             Ok(version) => (StatusType::Serving, version),
@@ -40,7 +38,6 @@ impl GatewayClient {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn watch(&self) -> impl Stream<Item = (StatusType, String)> {
         let client = self.client.clone();
         stream! {

@@ -22,11 +22,11 @@ iroh-rpc-types.workspace = true
 iroh-unixfs.workspace = true
 iroh-util.workspace = true
 libp2p.workspace = true
+log.workspace = true
 relative-path.workspace = true
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tokio.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["async_tokio"] }

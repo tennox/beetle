@@ -3,12 +3,12 @@ use crossterm::terminal::{Clear, ClearType};
 use crossterm::{cursor, style, style::Stylize, QueueableCommand};
 use futures::StreamExt;
 use iroh_util::iroh_cache_path;
+use log::info;
 use std::collections::BTreeSet;
 use std::io::{stdout, Write};
 use std::ops::Deref;
 use std::time::SystemTime;
 use sysinfo::PidExt;
-use tracing::info;
 
 use iroh_api::{Api, ApiError, ClientStatus, ServiceStatus, StatusType};
 use iroh_util::lock::{LockError, ProgramLock};

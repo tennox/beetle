@@ -38,7 +38,7 @@ impl<T: ContentLoader + Unpin> Core<T> {
     ) -> anyhow::Result<Self> {
         tokio::spawn(async move {
             if let Err(err) = rpc::new(rpc_addr, Gateway::default()).await {
-                tracing::error!("Failed to run gateway rpc handler: {err}");
+                log::error!("Failed to run gateway rpc handler: {err}");
             }
         });
         let mut templates = HashMap::new();
@@ -68,7 +68,7 @@ impl<T: ContentLoader + Unpin> Core<T> {
     ) -> anyhow::Result<Self> {
         tokio::spawn(async move {
             if let Err(err) = rpc::new(rpc_addr, Gateway::default()).await {
-                tracing::error!("Failed to run gateway rpc handler: {}", err);
+                log::error!("Failed to run gateway rpc handler: {}", err);
             }
         });
         Ok(Self { state })

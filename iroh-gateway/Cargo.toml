@@ -34,6 +34,7 @@ iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-unixfs.workspace = true
 iroh-util.workspace = true
+log.workspace = true
 mime.workspace = true
 mime_classifier.workspace = true
 mime_guess.workspace = true
@@ -51,7 +52,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", 
 tokio-util = { workspace = true, features = ["compat", "io"] }
 tower = { workspace = true, features = ["util", "timeout", "load-shed", "limit"] }
 tower-http = { workspace = true, features = ["trace", "compression-full", "cors"] }
-tracing.workspace = true
 url.workspace = true
 urlencoding.workspace = true
 testdir.workspace = true

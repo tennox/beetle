@@ -127,7 +127,7 @@ impl Api {
             "IPFS path does not refer to a CID"
         );
 
-        tracing::debug!("get {:?}", ipfs_path);
+        log::debug!("get {:?}", ipfs_path);
         let resolver = self.resolver.clone();
         let results = resolver.resolve_recursive_with_paths(ipfs_path.clone());
         let sub_path = ipfs_path.to_relative_string();

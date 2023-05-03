@@ -8,10 +8,10 @@ use iroh_resolver::resolver::{Out, OutPrettyReader, OutType, Path, Resolver, Uni
 use iroh_unixfs::Link;
 use libp2p::gossipsub::{GossipsubMessage, MessageId, TopicHash};
 use libp2p::PeerId;
+use log::{debug, info, warn};
 use tokio::sync::mpsc::{channel, Receiver as ChannelReceiver};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
-use tracing::{debug, info, warn};
 
 use crate::SenderMessage;
 use crate::{

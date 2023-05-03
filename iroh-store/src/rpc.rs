@@ -12,7 +12,7 @@ use iroh_rpc_types::{
     },
     VersionRequest, VersionResponse, WatchRequest, WatchResponse,
 };
-use tracing::info;
+use log::info;
 
 use crate::{store::Store, VERSION};
 
@@ -24,7 +24,6 @@ impl iroh_rpc_types::NamedService for Store {
 pub struct RpcStore(Store);
 
 impl RpcStore {
-    #[tracing::instrument(skip(self))]
     fn watch(self, _: WatchRequest) -> impl Stream<Item = WatchResponse> {
         async_stream::stream! {
             loop {
@@ -34,14 +33,12 @@ impl RpcStore {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     async fn version(self, _: VersionRequest) -> VersionResponse {
         VersionResponse {
             version: VERSION.to_string(),
         }
     }
 
-    #[tracing::instrument(skip(self, req))]
     async fn put(self, req: PutRequest) -> Result<()> {
         let cid = req.cid;
         let links = req.links;
@@ -53,7 +50,6 @@ impl RpcStore {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, req))]
     async fn put_many(self, req: PutManyRequest) -> Result<()> {
         let req = req
             .blocks
@@ -67,7 +63,6 @@ impl RpcStore {
         self.0.spawn_blocking(move |x| x.put_many(req)).await
     }
 
-    #[tracing::instrument(skip(self))]
     async fn get(self, req: GetRequest) -> Result<GetResponse> {
         let cid = req.cid;
         self.0
@@ -83,7 +78,6 @@ impl RpcStore {
             .await
     }
 
-    #[tracing::instrument(skip(self))]
     async fn has(self, req: HasRequest) -> Result<HasResponse> {
         let cid = req.cid;
         self.0
@@ -94,7 +88,6 @@ impl RpcStore {
             .await
     }
 
-    #[tracing::instrument(skip(self))]
     async fn get_links(self, req: GetLinksRequest) -> Result<GetLinksResponse> {
         let cid = req.cid;
         self.0
@@ -105,7 +98,6 @@ impl RpcStore {
             .await
     }
 
-    #[tracing::instrument(skip(self))]
     async fn get_size(self, req: GetSizeRequest) -> Result<GetSizeResponse> {
         let cid = req.cid;
         self.0
@@ -133,7 +125,6 @@ async fn dispatch(s: StoreServer, req: StoreRequest, chan: ServerSocket<StoreSer
     }
 }
 
-#[tracing::instrument(skip(store))]
 pub async fn new(addr: StoreAddr, store: Store) -> Result<()> {
     info!("store rpc listening on: {}", addr);
     let server = create_server::<StoreService>(addr).await?;
@@ -144,7 +135,7 @@ pub async fn new(addr: StoreAddr, store: Store) -> Result<()> {
                 tokio::spawn(dispatch(server.clone(), req, chan, store.clone()));
             }
             Err(cause) => {
-                tracing::debug!("store rpc accept error: {}", cause);
+                log::debug!("store rpc accept error: {}", cause);
             }
         }
     }

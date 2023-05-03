@@ -11,8 +11,8 @@ use anyhow::{anyhow, Result};
 use cid::Cid;
 use futures::FutureExt;
 use libp2p::PeerId;
+use log::debug;
 use tokio::sync::RwLock;
-use tracing::debug;
 
 use crate::{network::Network, Block};
 

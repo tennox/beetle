@@ -24,6 +24,7 @@ iroh-rpc-client.workspace = true
 iroh-util.workspace = true
 libipld.workspace = true
 libp2p = { workspace = true, features = ["serde"] }
+log.workspace = true
 multihash.workspace = true
 num_enum.workspace = true
 once_cell.workspace = true
@@ -34,7 +35,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["fs"] }
 tokio-util = { workspace = true, features = ["io"] }
-tracing.workspace = true
 unsigned-varint.workspace = true
 
 [dev-dependencies]

@@ -11,10 +11,10 @@ use iroh_car::{CarHeader, CarWriter};
 use iroh_resolver::dns_resolver::Config;
 use iroh_resolver::resolver::{CidOrDomain, Metadata, Out, OutPrettyReader, OutType, Resolver};
 use iroh_unixfs::content_loader::ContentLoader;
+use log::{info, warn};
 use mime::Mime;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWrite};
 use tokio_util::io::ReaderStream;
-use tracing::{info, warn};
 
 use crate::response::ResponseFormat;
 use crate::{constants::RECURSION_LIMIT, handler_params::GetParams};
@@ -89,7 +89,6 @@ impl<T: ContentLoader + std::marker::Unpin> Client<T> {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn retrieve_path_metadata(
         &self,
         path: iroh_resolver::resolver::Path,
@@ -108,12 +107,10 @@ impl<T: ContentLoader + std::marker::Unpin> Client<T> {
         self.resolver.resolve(path).await.map_err(|e| e.to_string())
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn get_file(
         &self,
         path: iroh_resolver::resolver::Path,
         path_metadata: Option<Out>,
-        start_time: std::time::Instant,
         range: Option<Range<u64>>,
     ) -> Result<(FileResult<T>, Metadata), String> {
         info!("get file {}", path);
@@ -156,11 +153,9 @@ impl<T: ContentLoader + std::marker::Unpin> Client<T> {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn get_car_recursive(
         self,
         path: iroh_resolver::resolver::Path,
-        start_time: std::time::Instant,
     ) -> Result<axum::body::StreamBody<ReaderStream<tokio::io::DuplexStream>>, String> {
         info!("get car {}", path);
         // TODO: Find out what a good buffer size is here.
@@ -176,11 +171,9 @@ impl<T: ContentLoader + std::marker::Unpin> Client<T> {
         Ok(body)
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn get_file_recursive(
         self,
         path: iroh_resolver::resolver::Path,
-        start_time: std::time::Instant,
     ) -> Result<axum::body::Body, String> {
         info!("get file {}", path);
         let (mut sender, body) = axum::body::Body::channel();
@@ -220,7 +213,6 @@ impl<T: ContentLoader + std::marker::Unpin> Client<T> {
 }
 
 impl<T: ContentLoader> Client<T> {
-    #[tracing::instrument(skip(self))]
     pub async fn has_file_locally(&self, cid: &Cid) -> Result<bool> {
         info!("has cid {}", cid);
         self.resolver.has_cid(cid).await

@@ -7,7 +7,7 @@ use iroh_rpc_types::{
     gateway::{GatewayAddr, GatewayRequest, GatewayService},
     VersionRequest, VersionResponse, WatchRequest, WatchResponse,
 };
-use tracing::info;
+use log::{debug, info};
 
 use crate::VERSION;
 
@@ -15,7 +15,6 @@ use crate::VERSION;
 pub struct Gateway {}
 
 impl Gateway {
-    #[tracing::instrument(skip(self))]
     fn watch(self, _: WatchRequest) -> impl Stream<Item = WatchResponse> {
         async_stream::stream! {
             loop {
@@ -25,7 +24,6 @@ impl Gateway {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     async fn version(self, _: VersionRequest) -> VersionResponse {
         VersionResponse {
             version: VERSION.to_string(),
@@ -60,7 +58,7 @@ pub async fn new(addr: GatewayAddr, gw: Gateway) -> Result<()> {
                 tokio::spawn(dispatch(server.clone(), req, chan, gw.clone()));
             }
             Err(cause) => {
-                tracing::debug!("gateway rpc accept error: {}", cause);
+                debug!("gateway rpc accept error: {}", cause);
             }
         }
     }

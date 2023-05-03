@@ -14,8 +14,8 @@ use cid::{multibase::Base, Cid};
 use futures::future::Either;
 use futures::StreamExt;
 use iroh_rpc_client::Client;
+use log::{debug, info, trace, warn};
 use reqwest::Url;
-use tracing::{debug, info, trace, warn};
 
 use crate::{
     builder::FileBuilder,

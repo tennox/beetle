@@ -5,9 +5,9 @@ use cid::Cid;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use libp2p::PeerId;
+use log::{debug, error, trace, warn};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
-use tracing::{debug, error, trace, warn};
 
 use self::{
     decision::{Config as DecisionConfig, Engine as DecisionEngine, Envelope},

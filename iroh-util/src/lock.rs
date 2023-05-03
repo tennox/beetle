@@ -1,9 +1,9 @@
 use std::{fs::File, io, io::ErrorKind, io::Read, io::Write, path::PathBuf, process, result};
 
+use log::warn;
 use sysinfo::PidExt;
 use sysinfo::{Pid, ProcessExt, ProcessStatus::*, System, SystemExt};
 use thiserror::Error;
-use tracing::warn;
 
 use crate::exitcodes;
 

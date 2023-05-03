@@ -22,13 +22,13 @@ git-version.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true
+log.workspace = true
 multihash.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
 rocksdb.workspace = true
 serde = { workspace = true, features = ["derive"] }
 smallvec = { workspace = true, features = ["write"] }
 tokio = { workspace = true, features = ["rt"] }
-tracing.workspace = true
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["async_tokio"] }

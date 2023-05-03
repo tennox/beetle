@@ -6,8 +6,8 @@ use cid::Cid;
 use derivative::Derivative;
 use futures::{future::BoxFuture, FutureExt};
 use libp2p::PeerId;
+use log::{debug, error, trace, warn};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, trace, warn};
 
 use crate::network::Network;
 

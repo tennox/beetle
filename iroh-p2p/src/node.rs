@@ -13,7 +13,7 @@ use libp2p::gossipsub::{GossipsubMessage, MessageId, TopicHash};
 pub use libp2p::gossipsub::{IdentTopic, Topic};
 use libp2p::identify::{Event as IdentifyEvent, Info as IdentifyInfo};
 use libp2p::identity::Keypair;
-use libp2p::kad::kbucket::{Distance, NodeStatus};
+use libp2p::kad::kbucket::Distance;
 use libp2p::kad::{
     self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, KademliaEvent,
     QueryId, QueryResult,
@@ -21,13 +21,13 @@ use libp2p::kad::{
 use libp2p::mdns;
 use libp2p::multiaddr::Protocol;
 use libp2p::ping::Result as PingResult;
-use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
+use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::{ConnectionHandler, IntoConnectionHandler, NetworkBehaviour, SwarmEvent};
 use libp2p::{PeerId, Swarm};
+use log::{debug, error, info, trace, warn};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot::{self, Sender as OneShotSender};
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, trace, warn};
 
 use iroh_bitswap::{BitswapEvent, Block};
 use iroh_rpc_client::Lookup;
@@ -278,51 +278,7 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
         Ok(())
     }
 
-    /// Check the next node in the DHT.
-    #[tracing::instrument(skip(self))]
-    async fn dht_nice_tick(&mut self) {
-        let mut to_dial = None;
-        if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
-            for kbucket in kad.kbuckets() {
-                if let Some(range) = self.kad_last_range {
-                    if kbucket.range() == range {
-                        continue;
-                    }
-                }
-
-                // find the first disconnected node
-                for entry in kbucket.iter() {
-                    if entry.status == NodeStatus::Disconnected {
-                        let peer_id = entry.node.key.preimage();
-
-                        let dial_opts = DialOpts::peer_id(*peer_id)
-                            .condition(PeerCondition::Disconnected)
-                            .addresses(entry.node.value.clone().into_vec())
-                            .extend_addresses_through_behaviour()
-                            .build();
-                        to_dial = Some((dial_opts, kbucket.range()));
-                        break;
-                    }
-                }
-            }
-        }
-
-        if let Some((dial_opts, range)) = to_dial {
-            trace!(
-                "checking node {:?} in bucket range ({:?})",
-                dial_opts.get_peer_id().unwrap(),
-                range
-            );
-
-            if let Err(e) = self.swarm.dial(dial_opts) {
-                warn!("failed to dial: {:?}", e);
-            }
-            self.kad_last_range = Some(range);
-        }
-    }
-
     /// Subscribe to [`NetworkEvent`]s.
-    #[tracing::instrument(skip(self))]
     pub fn network_events(&mut self) -> Receiver<NetworkEvent> {
         let (s, r) = channel(512);
         self.network_events.push(s);
@@ -403,7 +359,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     fn handle_swarm_event(
         &mut self,
         event: SwarmEvent<
@@ -460,7 +415,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     fn emit_network_event(&mut self, ev: NetworkEvent) {
         for sender in &mut self.network_events {
             let ev = ev.clone();
@@ -473,7 +427,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     fn handle_node_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Bitswap(e) => {
@@ -734,7 +687,6 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
     fn handle_rpc_message(&mut self, message: RpcMessage) -> Result<bool> {
         // Inbound messages
         match message {
@@ -916,7 +868,7 @@ impl<KeyStorage: Storage> Node<KeyStorage> {
                 let gossipsub = match self.swarm.behaviour_mut().gossipsub.as_mut() {
                     Some(gossipsub) => gossipsub,
                     None => {
-                        tracing::warn!("Unexpected gossipsub message");
+                        log::warn!("Unexpected gossipsub message");
                         return Ok(false);
                     }
                 };
@@ -1084,7 +1036,6 @@ mod tests {
     use anyhow::Result;
     use iroh_rpc_client::P2pClient;
     use iroh_rpc_types::{p2p::P2pAddr, Addr};
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
     #[tokio::test]
     #[ignore]
@@ -1103,11 +1054,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_providers_mem_dht() -> Result<()> {
-        tracing_subscriber::registry()
-            .with(fmt::layer().pretty())
-            .with(EnvFilter::from_default_env())
-            .init();
-
         let client_addr = Addr::new_mem();
         let server_addr = client_addr.clone();
         fetch_providers(

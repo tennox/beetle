@@ -1,11 +1,12 @@
 #![allow(
     clippy::bool_to_int_with_if,
     clippy::diverging_sub_expression,
+    clippy::extra_unused_type_parameters,
     clippy::if_same_then_else,
     clippy::ifs_same_cond,
     clippy::items_after_statements,
     clippy::let_and_return,
-    clippy::let_underscore_drop,
+    clippy::let_underscore_untyped,
     clippy::match_bool,
     clippy::never_loop,
     clippy::overly_complex_bool_expr,

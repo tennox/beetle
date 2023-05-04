@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.56"
 name = "nix"
-version = "0.26.1"
+version = "0.26.2"
 authors = ["The nix-rust Project Developers"]
 include = [
     "src/**/*",

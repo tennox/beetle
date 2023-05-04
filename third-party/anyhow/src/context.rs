@@ -4,7 +4,7 @@ use core::convert::Infallible;
 use core::fmt::{self, Debug, Display, Write};
 
 #[cfg(backtrace)]
-use std::any::Demand;
+use std::any::{Demand, Provider};
 
 mod ext {
     use super::*;
@@ -92,7 +92,12 @@ impl<T> Context<T, Infallible> for Option<T> {
     where
         C: Display + Send + Sync + 'static,
     {
-        self.ok_or_else(|| Error::from_display(context, backtrace!()))
+        // Not using ok_or_else to save 2 useless frames off the captured
+        // backtrace.
+        match self {
+            Some(ok) => Ok(ok),
+            None => Err(Error::from_display(context, backtrace!())),
+        }
     }
 
     fn with_context<C, F>(self, context: F) -> Result<T, Error>
@@ -100,7 +105,10 @@ impl<T> Context<T, Infallible> for Option<T> {
         C: Display + Send + Sync + 'static,
         F: FnOnce() -> C,
     {
-        self.ok_or_else(|| Error::from_display(context(), backtrace!()))
+        match self {
+            Some(ok) => Ok(ok),
+            None => Err(Error::from_display(context(), backtrace!())),
+        }
     }
 }
 
@@ -137,7 +145,7 @@ where
 
     #[cfg(backtrace)]
     fn provide<'a>(&'a self, demand: &mut Demand<'a>) {
-        self.error.provide(demand);
+        StdError::provide(&self.error, demand);
     }
 }
 
@@ -151,8 +159,7 @@ where
 
     #[cfg(backtrace)]
     fn provide<'a>(&'a self, demand: &mut Demand<'a>) {
-        demand.provide_ref(self.error.backtrace());
-        self.error.provide(demand);
+        Provider::provide(&self.error, demand);
     }
 }
 

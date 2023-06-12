@@ -47,6 +47,7 @@ class InstrumentedMutex;
 class InstrumentedMutexLock;
 struct SuperVersionContext;
 class BlobFileCache;
+class BlobSource;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -162,8 +163,8 @@ extern const double kIncSlowdownRatio;
 class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
  public:
   // create while holding the mutex
-  ColumnFamilyHandleImpl(
-      ColumnFamilyData* cfd, DBImpl* db, InstrumentedMutex* mutex);
+  ColumnFamilyHandleImpl(ColumnFamilyData* cfd, DBImpl* db,
+                         InstrumentedMutex* mutex);
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
@@ -188,7 +189,8 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
 class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
  public:
   ColumnFamilyHandleInternal()
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), internal_cfd_(nullptr) {}
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
+        internal_cfd_(nullptr) {}
 
   void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
   virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
@@ -308,10 +310,6 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
-  void SetFlushReason(FlushReason flush_reason) {
-    flush_reason_ = flush_reason;
-  }
-  FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
   const FileOptions* soptions() const;
   const ImmutableOptions* ioptions() const { return &ioptions_; }
@@ -337,12 +335,10 @@ class ColumnFamilyData {
   // Validate CF options against DB options
   static Status ValidateOptions(const DBOptions& db_options,
                                 const ColumnFamilyOptions& cf_options);
-#ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(
       const DBOptions& db_options,
       const std::unordered_map<std::string, std::string>& options_map);
-#endif  // ROCKSDB_LITE
 
   InternalStats* internal_stats() { return internal_stats_.get(); }
 
@@ -356,7 +352,7 @@ class ColumnFamilyData {
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* _current);
-  uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
+  uint64_t GetNumLiveVersions() const;    // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
   uint64_t GetTotalBlobFileSize() const;  // REQUIRE: DB mutex held
@@ -376,7 +372,7 @@ class ColumnFamilyData {
                          SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
-  BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
+  BlobSource* blob_source() const { return blob_source_.get(); }
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
@@ -466,12 +462,6 @@ class ColumnFamilyData {
   bool queued_for_flush() { return queued_for_flush_; }
   bool queued_for_compaction() { return queued_for_compaction_; }
 
-  enum class WriteStallCause {
-    kNone,
-    kMemtableLimit,
-    kL0FileCountLimit,
-    kPendingCompactionBytes,
-  };
   static std::pair<WriteStallCondition, WriteStallCause>
   GetWriteStallConditionAndCause(
       int num_unflushed_memtables, int num_l0_files,
@@ -479,11 +469,8 @@ class ColumnFamilyData {
       const MutableCFOptions& mutable_cf_options,
       const ImmutableCFOptions& immutable_cf_options);
 
-  // Recalculate some small conditions, which are changed only during
-  // compaction, adding new memtable and/or
-  // recalculation of compaction score. These values are used in
-  // DBImpl::MakeRoomForWrite function to decide, if it need to make
-  // a write stall
+  // Recalculate some stall conditions, which are changed only during
+  // compaction, adding new memtable and/or recalculation of compaction score.
   WriteStallCondition RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options);
 
@@ -526,7 +513,31 @@ class ColumnFamilyData {
     return file_metadata_cache_res_mgr_;
   }
 
+  SequenceNumber GetFirstMemtableSequenceNumber() const;
+
   static const uint32_t kDummyColumnFamilyDataId;
+
+  // Keep track of whether the mempurge feature was ever used.
+  void SetMempurgeUsed() { mempurge_used_ = true; }
+  bool GetMempurgeUsed() { return mempurge_used_; }
+
+  // Allocate and return a new epoch number
+  uint64_t NewEpochNumber() { return next_epoch_number_.fetch_add(1); }
+
+  // Get the next epoch number to be assigned
+  uint64_t GetNextEpochNumber() const { return next_epoch_number_.load(); }
+
+  // Set the next epoch number to be assigned
+  void SetNextEpochNumber(uint64_t next_epoch_number) {
+    next_epoch_number_.store(next_epoch_number);
+  }
+
+  // Reset the next epoch number to be assigned
+  void ResetNextEpochNumber() { next_epoch_number_.store(1); }
+
+  // Recover the next epoch number of this CF and epoch number
+  // of its files (if missing)
+  void RecoverEpochNumbers();
 
  private:
   friend class ColumnFamilySet;
@@ -539,7 +550,7 @@ class ColumnFamilyData {
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer,
                    const std::shared_ptr<IOTracer>& io_tracer,
-                   const std::string& db_session_id);
+                   const std::string& db_id, const std::string& db_session_id);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -548,7 +559,7 @@ class ColumnFamilyData {
   Version* dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;         // == dummy_versions->prev_
 
-  std::atomic<int> refs_;      // outstanding references to ColumnFamilyData
+  std::atomic<int> refs_;  // outstanding references to ColumnFamilyData
   std::atomic<bool> initialized_;
   std::atomic<bool> dropped_;  // true if client dropped it
 
@@ -563,6 +574,7 @@ class ColumnFamilyData {
 
   std::unique_ptr<TableCache> table_cache_;
   std::unique_ptr<BlobFileCache> blob_file_cache_;
+  std::unique_ptr<BlobSource> blob_source_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 
@@ -591,8 +603,6 @@ class ColumnFamilyData {
   // Column Family. All earlier log files must be ignored and not
   // recovered from
   uint64_t log_number_;
-
-  std::atomic<FlushReason> flush_reason_;
 
   // An object that keeps all the compaction stats
   // and picks the next compaction
@@ -627,6 +637,9 @@ class ColumnFamilyData {
   // For charging memory usage of file metadata created for newly added files to
   // a Version associated with this CFD
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
+  bool mempurge_used_;
+
+  std::atomic<uint64_t> next_epoch_number_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
@@ -650,8 +663,7 @@ class ColumnFamilySet {
   // ColumnFamilySet supports iteration
   class iterator {
    public:
-    explicit iterator(ColumnFamilyData* cfd)
-        : current_(cfd) {}
+    explicit iterator(ColumnFamilyData* cfd) : current_(cfd) {}
     // NOTE: minimum operators for for-loop iteration
     iterator& operator++() {
       current_ = current_->next_;
@@ -673,7 +685,7 @@ class ColumnFamilySet {
                   WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  const std::string& db_session_id);
+                  const std::string& db_id, const std::string& db_session_id);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -735,6 +747,7 @@ class ColumnFamilySet {
   WriteController* write_controller_;
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;
+  const std::string& db_id_;
   std::string db_session_id_;
 };
 

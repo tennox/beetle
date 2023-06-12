@@ -11,8 +11,9 @@
 
 [package]
 edition = "2018"
+rust-version = "1.60"
 name = "librocksdb-sys"
-version = "0.8.0+7.4.4"
+version = "0.11.0+8.1.1"
 authors = [
     "Karl Hobley <karlhobley10@gmail.com>",
     "Arkadiy Paronyan <arkadiy@ethcore.io>",
@@ -46,6 +47,10 @@ version = "1.1"
 optional = true
 default-features = false
 
+[dependencies.lz4-sys]
+version = "1.9"
+optional = true
+
 [dependencies.tikv-jemalloc-sys]
 version = "0.5"
 features = ["unprefixed_malloc_on_supported_platforms"]
@@ -64,7 +69,7 @@ version = "1.0"
 features = ["v4"]
 
 [build-dependencies.bindgen]
-version = "0.60"
+version = "0.65"
 features = ["runtime"]
 default-features = false
 
@@ -84,7 +89,7 @@ bzip2 = ["bzip2-sys"]
 default = ["static"]
 io-uring = ["pkg-config"]
 jemalloc = ["tikv-jemalloc-sys"]
-lz4 = []
+lz4 = ["lz4-sys"]
 rtti = []
 snappy = []
 static = [

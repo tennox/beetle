@@ -16,7 +16,7 @@ use libc::{c_int, c_uchar, c_void};
 
 use crate::{db::DBInner, ffi, ffi_util::from_cstr, Cache, Error, DB};
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(i32)]
 pub enum PerfStatsLevel {
     /// Unknown settings
@@ -36,7 +36,7 @@ pub enum PerfStatsLevel {
     OutOfBound,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 #[repr(i32)]
 pub enum PerfMetric {
@@ -249,7 +249,7 @@ impl MemoryUsageBuilder {
     /// Add a cache to collect memory usage from it and add up in total stats
     fn add_cache(&mut self, cache: &Cache) {
         unsafe {
-            ffi::rocksdb_memory_consumers_add_cache(self.inner, cache.0.inner);
+            ffi::rocksdb_memory_consumers_add_cache(self.inner, cache.0.inner.as_ptr());
         }
     }
 

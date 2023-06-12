@@ -50,7 +50,7 @@ fn default_options() -> (Options, Cache) {
     opts.set_bytes_per_sync(1_048_576);
     opts.set_blob_file_size(512 * 1024 * 1024);
 
-    let cache = Cache::new_lru_cache(128 * 1024 * 1024).unwrap();
+    let cache = Cache::new_lru_cache(128 * 1024 * 1024);
     let mut bopts = BlockBasedOptions::default();
     // all our data is longer lived, so ribbon filters make sense
     bopts.set_ribbon_filter(10.0);

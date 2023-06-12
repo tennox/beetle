@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+## 0.21.0 (2023-05-09)
+
+* Add doc-check to CI with fix warnings in docs (YuraKotov)
+* Fix rustdoc::broken-intra-doc-links errors (YuraKotov)
+* Fix 32-bit ARM build (EyeOfPython)
+* Allow specifying checksum type (romanz)
+* Enable librocksdb-sys to be built by rustc_codegen_cranelift (ZePedroResende)
+* Update to RocksDB 8.0.0 (niklasf)
+* Block cache creation failure is not recoverable (niklasf)
+* Update iOS min version to 12 in the build script (mighty840)
+* Actually enable `io-uring` (niklasf)
+* Update to RocksDB 8.1.1 (niklasf)
+* Add `Cache::new_hyper_clock_cache()` (niklasf)
+* Retrieve Value from KeyMayExist if value found in Cache or Memory (Congyuwang)
+* Support for comparators as closures (pegesund)
+* Fix bug in DBWALIterator that would miss updates (Zagitta)
+
+## 0.20.1 (2023-02-10)
+
+* Fix supporting MSRV 1.60.0 (aleksuss)
+
+## 0.20.0 (2023-02-09)
+
+* Support RocksDB 7.x `BackupEngineOptions` (exabytes18)
+* Fix `int128` compatibility check (Dirreke)
+* Add `Options::load_latest` method to load the latest options from RockDB (Congyuwang)
+* Bump bindgen to 0.64.0 (cwlittle)
+* Bump rocksdb to 7.9.2 (kwek20)
+* Make `set_snapshot` method public (a14e)
+* Add `drop_cf` function to `TransactionDB` (bothra90)
+* Bump rocksdb to 7.8.3 (aleksuss)
+* Add doc for `set_cache_index_and_filter_blocks` (guerinoni)
+* Re-run `build.rs` if env vars change (drahnr)
+* Add `WriteBatch::data` method (w41ter)
+* Add `DB::open_cf_with_opts` method (w41ter)
+* Use lz4-sys crate rather then submodule (niklasf)
+* Make create_new_backup_flush generic (minshao)
+
 ## 0.19.0 (2022-08-05)
 
 * Add support for building with `io_uring` on Linux (parazyd)

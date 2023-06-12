@@ -11,8 +11,9 @@
 
 [package]
 edition = "2018"
+rust-version = "1.60"
 name = "rocksdb"
-version = "0.19.0"
+version = "0.21.0"
 authors = [
     "Tyler Neely <t@jujit.su>",
     "David Greenberg <dsg123456789@gmail.com>",
@@ -25,7 +26,6 @@ exclude = [
 ]
 description = "Rust wrapper for Facebook's RocksDB embeddable database"
 homepage = "https://github.com/rust-rocksdb/rust-rocksdb"
-readme = "README.md"
 keywords = [
     "database",
     "embedded",
@@ -40,7 +40,7 @@ repository = "https://github.com/rust-rocksdb/rust-rocksdb"
 version = "0.2"
 
 [dependencies.librocksdb-sys]
-version = "0.8.0"
+version = "0.11.0"
 
 [dependencies.serde]
 version = "1"

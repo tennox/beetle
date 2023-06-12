@@ -3,13 +3,17 @@ LIB_SOURCES =                                                   \
   cache/cache.cc                                                \
   cache/cache_entry_roles.cc                                    \
   cache/cache_key.cc                                            \
+  cache/cache_helpers.cc                                        \
   cache/cache_reservation_manager.cc                            \
+  cache/charged_cache.cc                                        \
   cache/clock_cache.cc                                          \
-  cache/fast_lru_cache.cc                                       \
   cache/lru_cache.cc                                            \
   cache/compressed_secondary_cache.cc                           \
+  cache/secondary_cache.cc                                      \
+  cache/secondary_cache_adapter.cc                              \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
+  db/blob/blob_contents.cc                                      \
   db/blob/blob_fetcher.cc                                       \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_builder.cc                                  \
@@ -33,7 +37,11 @@ LIB_SOURCES =                                                   \
   db/compaction/compaction_picker_fifo.cc                       \
   db/compaction/compaction_picker_level.cc                      \
   db/compaction/compaction_picker_universal.cc                  \
+  db/compaction/compaction_service_job.cc                       \
+  db/compaction/compaction_state.cc                             \
+  db/compaction/compaction_outputs.cc                           \
   db/compaction/sst_partitioner.cc                              \
+  db/compaction/subcompaction_state.cc                          \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/db_impl/compacted_db_impl.cc                               \
@@ -68,10 +76,11 @@ LIB_SOURCES =                                                   \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
   db/output_validator.cc                                        \
-  db/periodic_work_scheduler.cc                                 \
+  db/periodic_task_scheduler.cc                                 \
   db/range_del_aggregator.cc                                    \
   db/range_tombstone_fragmenter.cc                              \
   db/repair.cc                                                  \
+  db/seqno_to_time_mapping.cc                                   \
   db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
@@ -84,9 +93,11 @@ LIB_SOURCES =                                                   \
   db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
   db/wide/wide_column_serialization.cc                          \
+  db/wide/wide_columns.cc                                       \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
+  db/write_stall_stats.cc                                       \
   db/write_thread.cc                                            \
   env/composite_env.cc                                          \
   env/env.cc                                                    \
@@ -146,6 +157,7 @@ LIB_SOURCES =                                                   \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
+  port/mmap.cc                                                  \
   port/port_posix.cc                                            \
   port/win/env_default.cc                                       \
   port/win/env_win.cc                                           \
@@ -162,6 +174,7 @@ LIB_SOURCES =                                                   \
   table/block_based/block_based_table_iterator.cc               \
   table/block_based/block_based_table_reader.cc                 \
   table/block_based/block_builder.cc                            \
+  table/block_based/block_cache.cc                              \
   table/block_based/block_prefetcher.cc                         \
   table/block_based/block_prefix_index.cc                       \
   table/block_based/data_block_hash_index.cc                    \
@@ -187,6 +200,7 @@ LIB_SOURCES =                                                   \
   table/get_context.cc                                          \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
+  table/compaction_merging_iterator.cc                          \
   table/meta_blocks.cc                                          \
   table/persistent_cache_helper.cc                              \
   table/plain/plain_table_bloom.cc                              \
@@ -223,6 +237,7 @@ LIB_SOURCES =                                                   \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
   util/crc32c_arm64.cc                                          \
+  util/data_structure.cc                                        \
   util/dynamic_bloom.cc                                         \
   util/hash.cc                                                  \
   util/murmurhash.cc                                            \
@@ -232,6 +247,7 @@ LIB_SOURCES =                                                   \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
   util/status.cc                                                \
+  util/stderr_logger.cc                                         \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
@@ -368,6 +384,7 @@ TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
   db/db_with_timestamp_test_util.cc                             \
   test_util/mock_time_env.cc                                    \
+  test_util/secondary_cache_test_util.cc                        \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
   utilities/agg_merge/test_agg_merge.cc                                 \
@@ -433,6 +450,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/compaction/compaction_job_stats_test.cc                            \
   db/compaction/compaction_picker_test.cc                               \
   db/compaction/compaction_service_test.cc                              \
+  db/compaction/tiered_compaction_test.cc                               \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
@@ -492,17 +510,19 @@ TEST_MAIN_SOURCES =                                                     \
   db/obsolete_files_test.cc                                             \
   db/options_file_test.cc                                               \
   db/perf_context_test.cc                                               \
-  db/periodic_work_scheduler_test.cc                                    \
+  db/periodic_task_scheduler_test.cc                                    \
   db/plain_table_db_test.cc                                             \
   db/prefix_test.cc                                                     \
   db/repair_test.cc                                                     \
   db/range_del_aggregator_test.cc                                       \
   db/range_tombstone_fragmenter_test.cc                                 \
+  db/seqno_time_test.cc                                                 \
   db/table_properties_collector_test.cc                                 \
   db/version_builder_test.cc                                            \
   db/version_edit_test.cc                                               \
   db/version_set_test.cc                                                \
   db/wal_manager_test.cc                                                \
+  db/wide/db_wide_basic_test.cc                                         \
   db/wide/wide_column_serialization_test.cc                             \
   db/write_batch_test.cc                                                \
   db/write_callback_test.cc                                             \

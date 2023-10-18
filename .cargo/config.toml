@@ -1,25 +1,25 @@
-[source.crates-io]
-replace-with = "vendored-sources"
+# [source.crates-io]
+# replace-with = "vendored-sources"
 
-[source."git+https://github.com/bluejekyll/trust-dns.git?rev=e045743b88254e32cf0a75078e2213b9450ffeed"]
-git = "https://github.com/bluejekyll/trust-dns.git"
-rev = "e045743b88254e32cf0a75078e2213b9450ffeed"
-replace-with = "vendored-sources"
+# [source."git+https://github.com/bluejekyll/trust-dns.git?rev=e045743b88254e32cf0a75078e2213b9450ffeed"]
+# git = "https://github.com/bluejekyll/trust-dns.git"
+# rev = "e045743b88254e32cf0a75078e2213b9450ffeed"
+# replace-with = "vendored-sources"
 
-[source."git+https://github.com/capyloon/quicksink.git"]
-git = "https://github.com/capyloon/quicksink.git"
-replace-with = "vendored-sources"
+# [source."git+https://github.com/capyloon/quicksink.git"]
+# git = "https://github.com/capyloon/quicksink.git"
+# replace-with = "vendored-sources"
 
-[source."git+https://github.com/capyloon/soketto.git"]
-git = "https://github.com/capyloon/soketto.git"
-replace-with = "vendored-sources"
+# [source."git+https://github.com/capyloon/soketto.git"]
+# git = "https://github.com/capyloon/soketto.git"
+# replace-with = "vendored-sources"
 
-[source."git+https://github.com/capyloon/wasm-timer.git"]
-git = "https://github.com/capyloon/wasm-timer.git"
-replace-with = "vendored-sources"
+# [source."git+https://github.com/capyloon/wasm-timer.git"]
+# git = "https://github.com/capyloon/wasm-timer.git"
+# replace-with = "vendored-sources"
 
-[source.vendored-sources]
-directory = "third-party"
+# [source.vendored-sources]
+# directory = "third-party"
 
 [alias]
 xtask = "run --package xtask --"

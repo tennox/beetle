@@ -13,7 +13,7 @@ RUN apt-get update && \
 
 # install latest protocol buffer compiler.
 ARG TARGETPLATFORM
-COPY ../docker/install_protoc.sh .
+COPY ./docker/install_protoc.sh .
 RUN ./install_protoc.sh
 
 # set build env vars
@@ -28,7 +28,7 @@ RUN cargo install empty-library; exit 0
 
 WORKDIR /iroh
 
-COPY ../ .
+COPY ./ .
 
 RUN cargo build --bin iroh-one --profile=docker
 

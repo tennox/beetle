@@ -23,7 +23,6 @@
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         inputs.devenv.flakeModule
-        # TODO (import rust-overlay)
       ];
       systems = [ "x86_64-linux" "i686-linux" "x86_64-darwin" "aarch64-linux" "aarch64-darwin" ];
 
@@ -33,27 +32,57 @@
           # rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           #   targets = [ "wasm32-wasi" ];
           # };
-          rustToolchain = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
-            # extensions = [ "rust-src" ];
-            targets = [
-              # "x86_64-unknown-linux-musl"
-              "wasm-unknown-unknown"
+          pkgsWithRust = import inputs.nixpkgs {
+            inherit system;
+            overlays = [
+              (import rust-overlay)
             ];
+          };
+          rustToolchain = pkgsWithRust.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
+            # extensions = [ "rust-src" ];
+            # targets = [
+            #   "x86_64-unknown-linux-musl"
+            #   # "wasm-unknown-unknown"
+            # ];
           });
 
+          # craneLib = crane.lib.${system};
           craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-          my-crate = craneLib.buildPackage {
+          iroh-one = craneLib.buildPackage rec {
             # https://crane.dev/getting-started.html
-            src = craneLib.cleanCargoSource (craneLib.path ./.);
+            #src = craneLib.cleanCargoSource (craneLib.path ./.);
+            # When filtering sources, we want to allow assets other than .rs files
+            src = pkgs.lib.cleanSourceWith {
+              src = ./.; # The original, unfiltered source
+              filter =
+                let
+                  hasAnyWantedSuffix = path: pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path)
+                    [ ".proto" ".css" ".html" ];
+                in
+                path: type:
+                  (hasAnyWantedSuffix path) ||
+                  # (pkgs.lib.hasInfix "/assets/" path) ||
+                  # Default filter from crane (allow .rs files)
+                  (craneLib.filterCargoSources path type)
+              ;
+            };
 
-            CARGO_BUILD_TARGET = "wasm-unknown-unknown";
+            pname = "iroh-one";
+            cargoExtraArgs = "-p iroh-one --features=http-uds-gateway";
+            # cargoVendorDir = null;
+            cargoVendorDir = craneLib.vendorCargoDeps { cargoLock = ./Cargo.lock; };
+
+            # CARGO_BUILD_TARGET = "wasm-unknown-unknown";
             # CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
-            CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+            CARGO_BUILD_TARGET = "x86_64-unknown-linux-gnu";
+            # CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
             # Add extra inputs here or any other derivation settings
-            # doCheck = true;
-            # buildInputs = [];
-            # nativeBuildInputs = [];
+            doCheck = false;
+            buildInputs = with pkgs; [ protobuf clang libclang gcc ];
+            LIBCLANG_PATH = "${pkgs.llvmPackages_11.libclang.lib}/lib";
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
+            #nativeBuildInputs = [];
           };
         in
         {
@@ -61,29 +90,17 @@
           # module parameters provide easy access to attributes of the same
           # system.
           checks = {
-            inherit my-crate;
+            inherit iroh-one;
           };
 
-          packages.default = my-crate;
+          packages.default = iroh-one;
 
           devenv.shells.default = {
-            # name = name;
-
             # https://devenv.sh/reference/options/
             packages = with pkgs; [
               nixpkgs-fmt
               nil
-              # (lib.traceVal config.packages.default)
             ];
-
-            # enterShell = ''
-            #   hello
-            # '';
-
-            # # ? Not sure if needed
-            # env = /* nixpkgs.lib.trace "${rust}/lib/rustlib/src/rust/library" */ [
-            #   { name = "RUST_SRC_PATH"; value = "${rust}/lib/rustlib/src/rust/library"; }
-            # ];
           } // (import ./devenv.nix { inherit pkgs; });
         }
       );
